@@ -1,4 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
+import type { FieldValue } from './protocols/types';
+import { installChangeTracking } from './sync/tracking';
 
 export type ProjectStatus = 'aktiv' | 'abgeschlossen';
 
@@ -119,6 +121,31 @@ export interface BlobRecord {
   mime: string;
 }
 
+/** Ausgefülltes Protokoll (Prüfprotokoll, Checkliste, Aufmaß) auf Basis einer Vorlage aus src/protocols/templates.ts. */
+export interface Protocol {
+  id: string;
+  projectId: string;
+  templateId: string;
+  /** Version der Vorlage beim Anlegen – Vorlagen dürfen sich später ändern. */
+  templateVersion: number;
+  titel: string;
+  datum: string;
+  /** Werte je Feld-id der Vorlage. */
+  values: Record<string, FieldValue>;
+  abgeschlossen: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Löschvermerk, damit eine Löschung beim Geräteabgleich nicht als „fehlt, also wieder anlegen“ gilt. */
+export interface Tombstone {
+  /** `${table}:${id}` */
+  key: string;
+  table: string;
+  id: string;
+  deletedAt: number;
+}
+
 export interface Setting {
   key: string;
   value: unknown;
@@ -147,6 +174,8 @@ export const db = new Dexie('baustellenbuch') as Dexie & {
   sketches: EntityTable<Sketch, 'id'>;
   blobs: EntityTable<BlobRecord, 'id'>;
   signatures: EntityTable<Signature, 'id'>;
+  protocols: EntityTable<Protocol, 'id'>;
+  tombstones: EntityTable<Tombstone, 'key'>;
   settings: EntityTable<Setting, 'key'>;
 };
 
@@ -163,7 +192,14 @@ db.version(1).stores({
 
 db.version(2).stores({ signatures: 'id, projectId' });
 
-export const TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'signatures', 'settings'] as const;
+db.version(3).stores({ protocols: 'id, projectId, datum', tombstones: 'key, table' });
+
+export const TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'signatures', 'protocols', 'tombstones', 'settings'] as const;
+
+/** Tabellen mit fachlichen Datensätzen (id-Schlüssel), die beim Geräteabgleich zusammengeführt werden. */
+export const SYNC_TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'signatures', 'protocols'] as const;
+
+installChangeTracking(db);
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const row = await db.settings.get(key);
@@ -181,7 +217,7 @@ export function touchProject(id: string) {
 }
 
 export async function deleteProject(id: string) {
-  await db.transaction('rw', [db.projects, db.times, db.materials, db.notes, db.photos, db.sketches, db.blobs, db.signatures, db.settings], async () => {
+  await db.transaction('rw', [db.projects, db.times, db.materials, db.notes, db.photos, db.sketches, db.blobs, db.signatures, db.protocols, db.settings], async () => {
     await Promise.all([
       db.times.where('projectId').equals(id).delete(),
       db.materials.where('projectId').equals(id).delete(),
@@ -190,6 +226,7 @@ export async function deleteProject(id: string) {
       db.sketches.where('projectId').equals(id).delete(),
       db.blobs.where('projectId').equals(id).delete(),
       db.signatures.where('projectId').equals(id).delete(),
+      db.protocols.where('projectId').equals(id).delete(),
     ]);
     const timer = await db.settings.get('timer');
     if (timer && (timer.value as RunningTimer | null)?.projectId === id) await db.settings.delete('timer');

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-export type Tab = 'uebersicht' | 'stunden' | 'material' | 'notizen' | 'fotos' | 'skizzen';
-export const TABS: Tab[] = ['uebersicht', 'stunden', 'material', 'notizen', 'fotos', 'skizzen'];
+export type Tab = 'uebersicht' | 'stunden' | 'material' | 'notizen' | 'fotos' | 'skizzen' | 'protokolle';
+export const TABS: Tab[] = ['uebersicht', 'stunden', 'material', 'notizen', 'fotos', 'skizzen', 'protokolle'];
 
 export type Route =
   | { name: 'home' }
@@ -11,7 +11,8 @@ export type Route =
   | { name: 'projekt'; id: string; tab: Tab }
   | { name: 'bearbeiten'; id: string }
   | { name: 'bericht'; id: string }
-  | { name: 'skizze'; id: string; sketchId: string };
+  | { name: 'skizze'; id: string; sketchId: string }
+  | { name: 'protokoll'; id: string; protocolId: string };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
@@ -23,6 +24,7 @@ export function parseRoute(hash: string): Route {
     if (parts[2] === 'bearbeiten') return { name: 'bearbeiten', id };
     if (parts[2] === 'bericht') return { name: 'bericht', id };
     if (parts[2] === 'skizze' && parts[3]) return { name: 'skizze', id, sketchId: parts[3] };
+    if (parts[2] === 'protokoll' && parts[3]) return { name: 'protokoll', id, protocolId: parts[3] };
     const tab = TABS.includes(parts[2] as Tab) ? (parts[2] as Tab) : 'uebersicht';
     return { name: 'projekt', id, tab };
   }

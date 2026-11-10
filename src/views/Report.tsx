@@ -6,8 +6,10 @@ import { shareOrDownload, shareText, toCsv } from '../lib/export';
 import { addDays, fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, sumMaterial, uid, weekStart } from '../lib/util';
 import { SignaturePad } from '../components/SignaturePad';
 import { BufferImg, Header } from '../components/ui';
+import { ProtocolPrint } from '../protocols/ProtocolPrint';
+import { templateById } from '../protocols/templates';
 
-const SECTIONS = ['Stunden', 'Material', 'Notizen', 'Fotos', 'Skizzen'] as const;
+const SECTIONS = ['Stunden', 'Material', 'Notizen', 'Fotos', 'Skizzen', 'Protokolle'] as const;
 type Section = (typeof SECTIONS)[number];
 
 const byDate = <T extends { datum: string; createdAt: number }>(a: T, b: T) => (a.datum === b.datum ? a.createdAt - b.createdAt : a.datum < b.datum ? -1 : 1);
@@ -19,12 +21,12 @@ export default function Report({ id }: { id: string }) {
   const [nurRegie, setNurRegie] = useState(false);
   const [matSumme, setMatSumme] = useState(false);
   const [hinweis, setHinweis] = useState('');
-  const [show, setShow] = useState<Record<Section, boolean>>({ Stunden: true, Material: true, Notizen: true, Fotos: true, Skizzen: true });
+  const [show, setShow] = useState<Record<Section, boolean>>({ Stunden: true, Material: true, Notizen: true, Fotos: true, Skizzen: true, Protokolle: true });
 
   const data = useLiveQuery(async () => {
     const project = await db.projects.get(id);
     if (!project) return null;
-    const [times, materials, notes, photos, sketches, blobs, profil, signatures] = await Promise.all([
+    const [times, materials, notes, photos, sketches, blobs, profil, signatures, protocols] = await Promise.all([
       db.times.where('projectId').equals(id).toArray(),
       db.materials.where('projectId').equals(id).toArray(),
       db.notes.where('projectId').equals(id).toArray(),
@@ -33,8 +35,9 @@ export default function Report({ id }: { id: string }) {
       db.blobs.where('projectId').equals(id).toArray(),
       getSetting<Profil>('profil', DEFAULT_PROFIL),
       db.signatures.where('projectId').equals(id).toArray(),
+      db.protocols.where('projectId').equals(id).toArray(),
     ]);
-    return { project, times, materials, notes, photos, sketches, blobs: new Map(blobs.map((b) => [b.id, b])), profil, signatures };
+    return { project, times, materials, notes, photos, sketches, blobs: new Map(blobs.map((b) => [b.id, b])), profil, signatures, protocols };
   }, [id]);
 
   if (data === undefined) return null;
@@ -50,6 +53,7 @@ export default function Report({ id }: { id: string }) {
   // Skizzen haben kein Arbeitsdatum – maßgeblich ist das Erstelldatum.
   const sketches = data.sketches.filter((s) => inRange(isoDate(new Date(s.createdAt)), von, bis)).sort((a, b) => a.createdAt - b.createdAt);
 
+  const protocols = data.protocols.filter((p) => inRange(p.datum, von, bis)).sort(byDate);
   const sum = times.reduce((s, t) => s + t.minuten, 0);
   const sumKm = times.reduce((s, t) => s + (t.fahrtKm ?? 0), 0);
   // Eine Unterschrift gilt genau für den Zeitraum, für den sie geleistet wurde.
@@ -356,6 +360,12 @@ export default function Report({ id }: { id: string }) {
               </div>
             </section>
           )}
+
+          {show.Protokolle && !nurRegie &&
+            protocols.map((p) => {
+              const template = templateById(p.templateId);
+              return template ? <ProtocolPrint key={p.id} template={template} protocol={p} /> : null;
+            })}
 
           <div className="signatures">
             <div>Ort, Datum / Unterschrift Auftragnehmer</div>

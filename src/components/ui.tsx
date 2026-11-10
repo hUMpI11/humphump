@@ -11,6 +11,7 @@ const ICONS: Record<string, ReactNode> = {
   phone: <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A15 15 0 0 1 4 5a1 1 0 0 1 1-1z" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   calendar: (<><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M8 3v4M16 3v4" /></>),
+  clipboard: (<><path d="M8 5H6v16h12V5h-2" /><rect x="8" y="3" width="8" height="4" rx="1" /><path d="M9 13l2 2 4-4" /></>),
   plus: <path d="M12 5v14M5 12h14" />,
   back: <path d="M15 5l-7 7 7 7" />,
   trash: <path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" />,

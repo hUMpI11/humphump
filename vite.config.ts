@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import pkg from './package.json' with { type: 'json' };
@@ -6,6 +6,8 @@ import pkg from './package.json' with { type: 'json' };
 // base './' => die App läuft unter jedem Pfad (z. B. GitHub Pages /repo-name/).
 export default defineConfig({
   base: './',
+  // Unit-Tests liegen neben dem Code; e2e/ gehört Playwright.
+  test: { include: ['src/**/*.test.ts'] },
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [
     react(),

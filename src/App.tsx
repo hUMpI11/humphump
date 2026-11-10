@@ -7,6 +7,7 @@ import Report from './views/Report';
 import Settings from './views/Settings';
 import Week from './views/Week';
 import SketchEditor from './views/SketchEditor';
+import ProtocolEditor from './views/ProtocolEditor';
 
 export default function App() {
   const route = parseRoute(useHash());
@@ -28,6 +29,9 @@ export default function App() {
       break;
     case 'woche':
       main = <Week />;
+      break;
+    case 'protokoll':
+      main = <ProtocolEditor key={route.protocolId} projectId={route.id} protocolId={route.protocolId} />;
       break;
     case 'bericht':
       main = <Report key={route.id} id={route.id} />;

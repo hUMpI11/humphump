@@ -9,6 +9,7 @@ import MaterialTab from './MaterialTab';
 import NotesTab from './NotesTab';
 import PhotosTab from './PhotosTab';
 import SketchTab from './SketchTab';
+import ProtocolTab from './ProtocolTab';
 
 const TAB_DEF: { id: Tab; label: string; icon: string }[] = [
   { id: 'uebersicht', label: 'Übersicht', icon: 'info' },
@@ -17,6 +18,7 @@ const TAB_DEF: { id: Tab; label: string; icon: string }[] = [
   { id: 'notizen', label: 'Notizen', icon: 'note' },
   { id: 'fotos', label: 'Fotos', icon: 'camera' },
   { id: 'skizzen', label: 'Skizzen', icon: 'pencil' },
+  { id: 'protokolle', label: 'Protokolle', icon: 'clipboard' },
 ];
 
 export default function ProjectDetail({ id, tab }: { id: string; tab: Tab }) {
@@ -44,6 +46,7 @@ export default function ProjectDetail({ id, tab }: { id: string; tab: Tab }) {
         {tab === 'notizen' && <NotesTab project={project} />}
         {tab === 'fotos' && <PhotosTab project={project} />}
         {tab === 'skizzen' && <SketchTab project={project} />}
+        {tab === 'protokolle' && <ProtocolTab project={project} />}
       </div>
     </>
   );

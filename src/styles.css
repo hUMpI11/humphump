@@ -103,7 +103,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   display: flex; background: var(--surface); border-top: 1px solid var(--line);
   padding: 4px calc(4px + var(--sar)) calc(4px + var(--sab)) calc(4px + var(--sal)); order: 3;
 }
-.tabbar a { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 4px; font-size: 10.5px; color: var(--muted); border-radius: 10px; }
+.tabbar a { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 4px; font-size: 10px; color: var(--muted); border-radius: 10px; }
 .tabbar a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabbar a.on { color: var(--accent); font-weight: 600; }
 
