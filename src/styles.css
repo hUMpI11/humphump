@@ -120,9 +120,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 .list-tools { padding: 10px 12px 4px; display: flex; flex-direction: column; gap: 10px; }
 .cards { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
-.project-card { display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 14px; border: 2px solid transparent; }
+.project-card { display: flex; align-items: stretch; border: 2px solid transparent; overflow: hidden; }
+.card-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 12px 10px 12px 14px; }
+.card-link:active { background: var(--surface-2); }
+.quick { flex: none; width: 56px; display: grid; place-items: center; color: var(--accent); border-left: 1px solid var(--line); }
+.quick:active { background: var(--surface-2); }
+.quick.running { color: var(--danger); }
+.tabtools { margin-bottom: 14px; display: flex; }
+.tabtools .btn { flex: 1; }
+button.today { width: 100%; }
 .project-card.active { border-color: var(--accent); }
-.project-card:active { background: var(--surface-2); }
 .card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .card-main strong { font-size: 16px; overflow-wrap: anywhere; }
 .card-side { display: flex; align-items: center; gap: 4px; color: var(--muted); }

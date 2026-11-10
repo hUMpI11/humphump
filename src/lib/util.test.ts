@@ -98,3 +98,21 @@ describe('Tagesablauf-Helfer', () => {
     expect(merge(['Kabel gezogen', 'Eigenes'], ['Inbetriebnahme', 'kabel gezogen'], (t) => t)).toEqual(['Kabel gezogen', 'Eigenes', 'Inbetriebnahme']);
   });
 });
+
+import { sumMaterial } from './util';
+
+describe('Materialsummen', () => {
+  it('fasst gleiche Positionen zusammen und hält Regie getrennt', () => {
+    const r = sumMaterial([
+      { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 12.5, regie: false },
+      { bezeichnung: 'wickelfalzrohr dn125 ', einheit: 'm', menge: 8.1, regie: false },
+      { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 2, regie: true },
+      { bezeichnung: 'Bogen 90°', einheit: 'Stk', menge: 3, regie: false },
+    ]);
+    expect(r).toEqual([
+      { bezeichnung: 'Bogen 90°', einheit: 'Stk', menge: 3, regie: false },
+      { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 20.6, regie: false },
+      { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 2, regie: true },
+    ]);
+  });
+});

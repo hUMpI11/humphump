@@ -12,6 +12,8 @@ export interface Project {
   status: ProjectStatus;
   beschreibung: string;
   ansprechpartner?: string;
+  /** Rechnung für die abgeschlossene Baustelle ist geschrieben. */
+  abgerechnet?: boolean;
   telefon?: string;
   createdAt: number;
   updatedAt: number;
@@ -66,6 +68,8 @@ export interface Signature {
   name: string;
   von: string;
   bis: string;
+  /** Unterschrift gilt für den Regiebericht (nur Zusatzleistungen). */
+  nurRegie?: boolean;
   data: ArrayBuffer; // PNG
   createdAt: number;
 }

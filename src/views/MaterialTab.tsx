@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, touchProject, type MaterialEntry, type Project } from '../db';
 import { EINHEITEN, vorschlaege } from '../gewerke';
-import { fmtDate, fmtNumber, groupByDate, isoDate, parseDecimal, uid } from '../lib/util';
+import { fmtDate, fmtNumber, groupByDate, isoDate, parseDecimal, sumMaterial, uid } from '../lib/util';
 import { eigeneMaterialien, merge } from '../lib/history';
 import { Empty, Fab, Field, FormActions, Sheet } from '../components/ui';
 import { GewerkSelect } from '../components/GewerkSelect';
@@ -12,12 +12,42 @@ type Draft = Partial<MaterialEntry>;
 export default function MaterialTab({ project }: { project: Project }) {
   const entries = useLiveQuery(() => db.materials.where('projectId').equals(project.id).toArray(), [project.id]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [summen, setSummen] = useState(false);
 
   return (
     <>
+      {entries && entries.length > 0 && (
+        <div className="segmented tabtools">
+          <button type="button" className={!summen ? 'on' : ''} onClick={() => setSummen(false)}>
+            Nach Datum
+          </button>
+          <button type="button" className={summen ? 'on' : ''} onClick={() => setSummen(true)}>
+            Summen
+          </button>
+        </div>
+      )}
+      {summen && (
+        <ul className="rows card">
+          {sumMaterial(entries ?? []).map((m) => (
+            <li key={`${m.bezeichnung}|${m.einheit}|${m.regie}`}>
+              <div className="row">
+                <span className="row-main">
+                  <strong>{m.bezeichnung}</strong>
+                </span>
+                <span className="row-side">
+                  {m.regie && <span className="chip warn">Regie</span>}
+                  <span className="num">
+                    {fmtNumber(m.menge, 3)} {m.einheit}
+                  </span>
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       {entries && entries.length === 0 && <Empty icon="box" title="Noch kein Material" text="Über + verbautes Material mit Menge und Einheit erfassen." />}
 
-      {groupByDate(entries ?? []).map(([datum, list]) => (
+      {!summen && groupByDate(entries ?? []).map(([datum, list]) => (
         <section key={datum} className="group">
           <h3>
             <span>{fmtDate(datum)}</span>
@@ -135,6 +165,20 @@ function MaterialForm({ project, draft, onClose }: { project: Project; draft: Dr
         {!draft.id && (
           <button type="button" className="btn" disabled={!valid} onClick={() => save(true)}>
             Speichern & nächste Position
+          </button>
+        )}
+        {draft.id && (
+          <button
+            type="button"
+            className="btn"
+            disabled={!valid}
+            onClick={async () => {
+              await db.materials.add({ datum: isoDate(), bezeichnung: bezeichnung.trim(), menge: m, einheit, artikelnr: artikelnr.trim(), gewerk, regie, id: uid(), projectId: project.id, createdAt: Date.now() });
+              await touchProject(project.id);
+              onClose();
+            }}
+          >
+            Als neue Position für heute kopieren
           </button>
         )}
         <FormActions disabled={!valid} onDelete={draft.id ? async () => { await db.materials.delete(draft.id!); onClose(); } : undefined} />

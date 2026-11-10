@@ -102,3 +102,22 @@ export function inRange(datum: string, von: string, bis: string): boolean {
 export function safeFilename(s: string): string {
   return s.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '') || 'export';
 }
+
+export interface MaterialSumme {
+  bezeichnung: string;
+  einheit: string;
+  menge: number;
+  regie: boolean;
+}
+
+/** Fasst gleiche Materialien zusammen (gleiche Bezeichnung + Einheit, Regie getrennt) – so steht es auf der Rechnung. */
+export function sumMaterial(list: { bezeichnung: string; einheit: string; menge: number; regie: boolean }[]): MaterialSumme[] {
+  const map = new Map<string, MaterialSumme>();
+  for (const m of list) {
+    const key = `${m.bezeichnung.trim().toLowerCase()}|${m.einheit}|${m.regie}`;
+    const cur = map.get(key);
+    if (cur) cur.menge = Math.round((cur.menge + m.menge) * 1000) / 1000;
+    else map.set(key, { bezeichnung: m.bezeichnung.trim(), einheit: m.einheit, menge: m.menge, regie: m.regie });
+  }
+  return [...map.values()].sort((a, b) => a.bezeichnung.localeCompare(b.bezeichnung, 'de') || Number(a.regie) - Number(b.regie));
+}

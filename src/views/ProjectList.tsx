@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSetting, type RunningTimer } from '../db';
+import { db, getSetting, setSetting, type RunningTimer } from '../db';
 import { gewerkName } from '../gewerke';
 import { addDays, fmtHours, hhmm, isoDate, weekStart } from '../lib/util';
 import { Empty, Header, Icon } from '../components/ui';
@@ -42,6 +42,7 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
       (!q || [p.name, p.kunde, p.adresse, p.auftragsnr].some((s) => s.toLowerCase().includes(q))),
   );
   const doneCount = all.filter((p) => p.status === 'abgeschlossen').length;
+  const unbilled = all.filter((p) => p.status === 'abgeschlossen' && !p.abgerechnet).length;
 
   return (
     <>
@@ -93,6 +94,14 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
               </span>
               <Icon name="chevron" size={18} />
             </a>
+            {unbilled > 0 && !showDone && (
+              <button type="button" className="card today" onClick={() => setShowDone(true)}>
+                <span>
+                  <span className="num">{unbilled}</span> abgeschlossene {unbilled === 1 ? 'Baustelle' : 'Baustellen'} ohne Rechnung
+                </span>
+                <Icon name="chevron" size={18} />
+              </button>
+            )}
             {data.backupFaellig && (
               <a className="warnbox" href="#/einstellungen">
                 <strong>Datensicherung fällig.</strong> {data.lastBackup ? 'Die letzte Sicherung ist älter als 7 Tage.' : 'Es wurde noch nie gesichert.'} Jetzt sichern →
@@ -116,7 +125,8 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
         <ul className="cards">
           {visible.map((p) => (
             <li key={p.id}>
-              <a className={`card project-card ${p.id === activeId ? 'active' : ''}`} href={`#/p/${p.id}`}>
+              <div className={`card project-card ${p.id === activeId ? 'active' : ''}`}>
+                <a className="card-link" href={`#/p/${p.id}`}>
                 <div className="card-main">
                   <strong>{p.name}</strong>
                   <span className="muted">{[p.kunde, p.adresse].filter(Boolean).join(' · ') || 'Keine Kundendaten'}</span>
@@ -127,13 +137,25 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
                       </span>
                     ))}
                     {data?.offen.get(p.id) ? <span className="chip warn">{data.offen.get(p.id)} offen</span> : null}
+                    {p.status === 'abgeschlossen' && <span className={p.abgerechnet ? 'chip' : 'chip warn'}>{p.abgerechnet ? 'abgerechnet' : 'Rechnung offen'}</span>}
                   </span>
                 </div>
                 <div className="card-side">
                   <span className="num">{fmtHours(data?.minutes.get(p.id) ?? 0)}</span>
-                  <Icon name="chevron" size={18} />
                 </div>
-              </a>
+                </a>
+                {/* Zeit mit einem Tipp starten – morgens auf der Baustelle zählt jeder Handgriff weniger. */}
+                {p.status === 'aktiv' && !data?.timer && (
+                  <button type="button" className="quick" aria-label={`Zeit starten: ${p.name}`} onClick={() => setSetting('timer', { projectId: p.id, start: Date.now() })}>
+                    <Icon name="play" size={20} />
+                  </button>
+                )}
+                {data?.timer?.projectId === p.id && (
+                  <a className="quick running" href={`#/p/${p.id}/stunden`} aria-label={`Laufende Zeit stoppen: ${p.name}`}>
+                    <Icon name="stop" size={20} />
+                  </a>
+                )}
+              </div>
             </li>
           ))}
         </ul>

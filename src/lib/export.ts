@@ -94,3 +94,21 @@ export async function restoreBackup(file: Blob): Promise<number> {
   }
   return count;
 }
+
+/** Text über den Teilen-Dialog weitergeben (WhatsApp, Mail …), ersatzweise in die Zwischenablage. */
+export async function shareText(title: string, text: string): Promise<'geteilt' | 'kopiert' | 'abgebrochen' | 'fehler'> {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text });
+      return 'geteilt';
+    } catch (e) {
+      if ((e as DOMException).name === 'AbortError') return 'abgebrochen';
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'kopiert';
+  } catch {
+    return 'fehler';
+  }
+}

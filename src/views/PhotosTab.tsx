@@ -13,6 +13,7 @@ const THUMB_EDGE = 400;
 export default function PhotosTab({ project }: { project: Project }) {
   const photos = useLiveQuery(() => db.photos.where('projectId').equals(project.id).toArray(), [project.id]);
   const input = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [open, setOpen] = useState<Photo | null>(null);
@@ -45,10 +46,17 @@ export default function PhotosTab({ project }: { project: Project }) {
 
   return (
     <>
+      {/* Zwei Wege: Kamera sofort (ein Tipp weniger auf der Baustelle) oder mehrere Bilder aus der Mediathek. */}
+      <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={onFiles} />
       <input ref={input} type="file" accept="image/*" multiple hidden onChange={onFiles} />
+      <div className="tabtools">
+        <button type="button" className="btn" onClick={() => input.current?.click()} disabled={busy}>
+          Aus Mediathek wählen
+        </button>
+      </div>
       {error && <p className="error">{error}</p>}
       {busy && <p className="calc">Bilder werden verarbeitet …</p>}
-      {photos && photos.length === 0 && !busy && <Empty icon="camera" title="Noch keine Fotos" text="Über das Kamera-Symbol ein Foto aufnehmen oder aus der Mediathek wählen." />}
+      {photos && photos.length === 0 && !busy && <Empty icon="camera" title="Noch keine Fotos" text="Das Kamera-Symbol öffnet direkt die Kamera. Mehrere vorhandene Bilder über „Aus Mediathek wählen“." />}
 
       {groupByDate(photos ?? []).map(([datum, list]) => (
         <section key={datum} className="group">
@@ -67,7 +75,7 @@ export default function PhotosTab({ project }: { project: Project }) {
         </section>
       ))}
 
-      <Fab label="Foto hinzufügen" icon="camera" onClick={() => input.current?.click()} />
+      <Fab label="Foto aufnehmen" icon="camera" onClick={() => camera.current?.click()} />
       {open && <PhotoSheet project={project} photo={open} onClose={() => setOpen(null)} />}
     </>
   );

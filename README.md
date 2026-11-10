@@ -7,17 +7,18 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 ## Funktionen
 
 - **Baustellen** mit Kunde, Adresse (öffnet Karten), Auftragsnummer, Gewerken, Status aktiv/abgeschlossen, Suche
-- **Startseite**: Stunden heute/diese Woche, laufende Zeit, offene Punkte je Baustelle, Erinnerung an die Datensicherung
+- **Startseite**: Stunden heute/diese Woche, laufende Zeit, Zeit mit einem Tipp starten, offene Punkte je Baustelle, abgeschlossene Baustellen ohne Rechnung, Erinnerung an die Datensicherung
 - **Stunden**: Start/Stopp-Timer (rundet auf Viertelstunden, schlägt die Pause vor) oder Nachtrag (Beginn/Ende/Pause oder Stunden direkt), Mitarbeiter, Tätigkeit, gefahrene Kilometer, Regie-Kennzeichen
 - **Wochenübersicht** über alle Baustellen mit Summen (Stunden, Regie, Kilometer) und CSV-Export
-- **Material**: Bezeichnung, Menge, Einheit, Artikelnummer, Regie; Serienerfassung („Speichern & nächste Position“)
+- **Material**: Bezeichnung, Menge, Einheit, Artikelnummer, Regie; Serienerfassung („Speichern & nächste Position“), Summen je Baustelle
+- **Kopieren**: Stunden- und Materialeinträge als neuen Eintrag für heute übernehmen
 - **Gewerke** mit Vorschlagslisten für Tätigkeiten und Material: MSR, Heizung, Lüftung, Sanitär, Elektro, Schreiner, Maurer, Maler, Trockenbau, Sonstiges (`src/gewerke.ts`)
 - **Notizen** mit Datum (Diktieren über die iOS-Tastatur) und **offene Punkte** zum Abhaken
 - **Vorschläge lernen mit**: eigene Materialien und Tätigkeiten stehen vor dem Standardkatalog
 - **Kontakt**: Ansprechpartner mit Telefonnummer zum Antippen
-- **Fotos** aus Kamera oder Mediathek, automatisch verkleinert (max. 1600 px), mit Beschreibung
+- **Fotos** direkt aus der Kamera oder mehrere aus der Mediathek, automatisch verkleinert (max. 1600 px), mit Beschreibung
 - **Skizzen**: Stift, Linie, Rechteck, Text/Maß, Radierer, Rückgängig; frei oder auf einem Foto; Apple Pencil mit Handballen-Schutz
-- **Bericht** je Baustelle und Zeitraum als Druck/PDF, mit **Unterschrift des Kunden auf dem Display**, Stunden und Material als CSV (Excel-tauglich)
+- **Bericht** je Baustelle und Zeitraum als Druck/PDF, wahlweise als **Regiebericht** (nur Zusatzleistungen), mit **Unterschrift des Kunden auf dem Display**, als Text zum Teilen (WhatsApp, Mail), Stunden und Material als CSV (Excel-tauglich)
 - **Datensicherung** als Datei (Export/Import)
 - **iPad**: zweispaltig (Baustellenliste + Detail), Skizzen im Vollbild; Hell-/Dunkelmodus
 

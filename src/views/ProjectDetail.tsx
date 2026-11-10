@@ -98,7 +98,8 @@ function Overview({ project }: { project: Project }) {
         <dl className="facts">
           <dt>Status</dt>
           <dd>
-            <span className={`chip ${done ? '' : 'on'}`}>{done ? 'Abgeschlossen' : 'Aktiv'}</span>
+            <span className={`chip ${done ? '' : 'on'}`}>{done ? 'Abgeschlossen' : 'Aktiv'}</span>{' '}
+            {done && <span className={project.abgerechnet ? 'chip' : 'chip warn'}>{project.abgerechnet ? 'abgerechnet' : 'Rechnung offen'}</span>}
           </dd>
           <dt>Gewerke</dt>
           <dd>{project.gewerke.map(gewerkName).join(', ')}</dd>
@@ -139,6 +140,11 @@ function Overview({ project }: { project: Project }) {
         <a className="btn" href={`#/p/${id}/bearbeiten`}>
           Stammdaten bearbeiten
         </a>
+        {done && (
+          <button type="button" className="btn" onClick={() => db.projects.update(id, { abgerechnet: !project.abgerechnet })}>
+            {project.abgerechnet ? 'Abrechnung zurücknehmen' : 'Als abgerechnet markieren'}
+          </button>
+        )}
         <button type="button" className="btn" onClick={() => db.projects.update(id, { status: done ? 'aktiv' : 'abgeschlossen', updatedAt: Date.now() })}>
           {done ? 'Wieder aktivieren' : 'Baustelle abschließen'}
         </button>

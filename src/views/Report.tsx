@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, DEFAULT_PROFIL, getSetting, type Profil } from '../db';
 import { gewerkName } from '../gewerke';
-import { shareOrDownload, toCsv } from '../lib/export';
-import { fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, uid } from '../lib/util';
+import { shareOrDownload, shareText, toCsv } from '../lib/export';
+import { addDays, fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, sumMaterial, uid, weekStart } from '../lib/util';
 import { SignaturePad } from '../components/SignaturePad';
 import { BufferImg, Header } from '../components/ui';
 
@@ -16,6 +16,9 @@ export default function Report({ id }: { id: string }) {
   const [von, setVon] = useState('');
   const [bis, setBis] = useState('');
   const [signing, setSigning] = useState(false);
+  const [nurRegie, setNurRegie] = useState(false);
+  const [matSumme, setMatSumme] = useState(false);
+  const [hinweis, setHinweis] = useState('');
   const [show, setShow] = useState<Record<Section, boolean>>({ Stunden: true, Material: true, Notizen: true, Fotos: true, Skizzen: true });
 
   const data = useLiveQuery(async () => {
@@ -38,8 +41,10 @@ export default function Report({ id }: { id: string }) {
   if (data === null) return <Header title="Baustelle nicht gefunden" back="/" />;
 
   const { project, profil, blobs } = data;
-  const times = data.times.filter((t) => inRange(t.datum, von, bis)).sort(byDate);
-  const materials = data.materials.filter((m) => inRange(m.datum, von, bis)).sort(byDate);
+  // Regiebericht: nur die Zusatzleistungen – das, was der Kunde vor Ort gegenzeichnen soll.
+  const times = data.times.filter((t) => inRange(t.datum, von, bis) && (!nurRegie || t.regie)).sort(byDate);
+  const materials = data.materials.filter((m) => inRange(m.datum, von, bis) && (!nurRegie || m.regie)).sort(byDate);
+  const titel = nurRegie ? 'Regiebericht' : 'Baustellenbericht';
   const notes = data.notes.filter((n) => inRange(n.datum, von, bis)).sort(byDate);
   const photos = data.photos.filter((p) => inRange(p.datum, von, bis)).sort(byDate);
   // Skizzen haben kein Arbeitsdatum – maßgeblich ist das Erstelldatum.
@@ -48,7 +53,7 @@ export default function Report({ id }: { id: string }) {
   const sum = times.reduce((s, t) => s + t.minuten, 0);
   const sumKm = times.reduce((s, t) => s + (t.fahrtKm ?? 0), 0);
   // Eine Unterschrift gilt genau für den Zeitraum, für den sie geleistet wurde.
-  const signature = data.signatures.filter((s) => s.von === von && s.bis === bis).sort((a, b) => b.createdAt - a.createdAt)[0];
+  const signature = data.signatures.filter((s) => s.von === von && s.bis === bis && !!s.nurRegie === nurRegie).sort((a, b) => b.createdAt - a.createdAt)[0];
   const sumRegie = times.filter((t) => t.regie).reduce((s, t) => s + t.minuten, 0);
   const zeitraum = von || bis ? `${von ? fmtDate(von, false) : 'Beginn'} – ${bis ? fmtDate(bis, false) : 'heute'}` : 'Gesamte Baustelle';
   const base = safeFilename(project.name);
@@ -82,6 +87,28 @@ export default function Report({ id }: { id: string }) {
       ),
     );
 
+  async function textTeilen() {
+    const z: string[] = [`${titel} – ${project.name}`, zeitraum, ''];
+    if ((show.Stunden || nurRegie) && times.length) {
+      z.push('Arbeitszeiten:');
+      for (const t of times) {
+        z.push(`• ${fmtDate(t.datum, false)}${t.von && t.bis ? ` ${t.von}–${t.bis}` : ''}: ${fmtHours(t.minuten)}${t.mitarbeiter ? ` (${t.mitarbeiter})` : ''}${t.regie && !nurRegie ? ' [Regie]' : ''}${t.taetigkeit ? ` – ${t.taetigkeit}` : ''}`);
+      }
+      z.push(`Summe: ${fmtHours(sum)}${sumKm ? `, ${fmtNumber(sumKm, 1)} km` : ''}`, '');
+    }
+    if ((show.Material || nurRegie) && materials.length) {
+      z.push('Material:');
+      for (const m of sumMaterial(materials)) z.push(`• ${fmtNumber(m.menge, 3)} ${m.einheit} ${m.bezeichnung}${m.regie && !nurRegie ? ' [Regie]' : ''}`);
+      z.push('');
+    }
+    if (show.Notizen && notes.length && !nurRegie) {
+      z.push('Notizen:');
+      for (const n of notes) z.push(`• ${[n.titel, n.text].filter(Boolean).join(': ')}${n.todo ? (n.done ? ' [erledigt]' : ' [offen]') : ''}`);
+    }
+    const r = await shareText(titel, z.join('\n').trim());
+    setHinweis(r === 'kopiert' ? 'Text in die Zwischenablage kopiert.' : r === 'fehler' ? 'Teilen wird von diesem Browser nicht unterstützt.' : '');
+  }
+
   return (
     <>
       <Header title="Bericht" subtitle={project.name} back={`/p/${id}`} />
@@ -101,15 +128,37 @@ export default function Report({ id }: { id: string }) {
             <button type="button" className="chip" onClick={() => { setVon(isoDate()); setBis(isoDate()); }}>
               Nur heute
             </button>
+            <button type="button" className="chip" onClick={() => { setVon(weekStart(isoDate())); setBis(addDays(weekStart(isoDate()), 6)); }}>
+              Diese Woche
+            </button>
             <button type="button" className="chip" onClick={() => { setVon(''); setBis(''); }}>
               Alles
             </button>
-            {SECTIONS.map((s) => (
-              <button key={s} type="button" className={show[s] ? 'chip on' : 'chip'} aria-pressed={show[s]} onClick={() => setShow({ ...show, [s]: !show[s] })}>
-                {s}
-              </button>
-            ))}
           </div>
+          <div className="segmented">
+            <button type="button" className={!nurRegie ? 'on' : ''} onClick={() => setNurRegie(false)}>
+              Gesamtbericht
+            </button>
+            <button type="button" className={nurRegie ? 'on' : ''} onClick={() => setNurRegie(true)}>
+              Nur Regie
+            </button>
+          </div>
+          {!nurRegie && (
+            <div className="field">
+              <span className="field-label">Inhalt</span>
+              <div className="chip-select">
+                {SECTIONS.map((s) => (
+                  <button key={s} type="button" className={show[s] ? 'chip on' : 'chip'} aria-pressed={show[s]} onClick={() => setShow({ ...show, [s]: !show[s] })}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={matSumme} onChange={(e) => setMatSumme(e.target.checked)} />
+            <span>Material summieren (gleiche Positionen zusammenfassen)</span>
+          </label>
           <div className="button-col">
             {signature ? (
               <button type="button" className="btn danger" onClick={() => window.confirm('Unterschrift entfernen?') && db.signatures.delete(signature.id)}>
@@ -123,6 +172,10 @@ export default function Report({ id }: { id: string }) {
             <button type="button" className="btn primary" onClick={() => window.print()}>
               Drucken / als PDF sichern
             </button>
+            <button type="button" className="btn" onClick={textTeilen}>
+              Als Text teilen (WhatsApp, Mail …)
+            </button>
+            {hinweis && <p className="calc">{hinweis}</p>}
             <div className="grid2">
               <button type="button" className="btn" onClick={csvTimes} disabled={!times.length}>
                 Stunden als CSV
@@ -137,7 +190,7 @@ export default function Report({ id }: { id: string }) {
         <article className="report">
           <header>
             <div>
-              <h1>Baustellenbericht</h1>
+              <h1>{titel}</h1>
               <p>{zeitraum}</p>
             </div>
             <div className="right">
@@ -157,7 +210,7 @@ export default function Report({ id }: { id: string }) {
             <dd>{project.gewerke.map(gewerkName).join(', ')}</dd>
           </dl>
 
-          {show.Stunden && times.length > 0 && (
+          {(show.Stunden || nurRegie) && times.length > 0 && (
             <section>
               <h2>Arbeitszeiten</h2>
               <table>
@@ -177,7 +230,7 @@ export default function Report({ id }: { id: string }) {
                       <td className="nw">{t.mitarbeiter}</td>
                       <td className="nw">{t.von && t.bis ? `${t.von}–${t.bis}` : ''}</td>
                       <td>
-                        {t.regie && <b>[Regie] </b>}
+                        {t.regie && !nurRegie && <b>[Regie] </b>}
                         {multi && <i>{gewerkName(t.gewerk)}: </i>}
                         {t.taetigkeit}
                         {t.fahrtKm ? ` (${fmtNumber(t.fahrtKm, 1)} km)` : ''}
@@ -202,7 +255,34 @@ export default function Report({ id }: { id: string }) {
             </section>
           )}
 
-          {show.Material && materials.length > 0 && (
+          {(show.Material || nurRegie) && matSumme && materials.length > 0 && (
+            <section>
+              <h2>Material (summiert)</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bezeichnung</th>
+                    <th className="r">Menge</th>
+                    <th>Einh.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sumMaterial(materials).map((m) => (
+                    <tr key={`${m.bezeichnung}|${m.einheit}|${m.regie}`}>
+                      <td>
+                        {m.regie && !nurRegie && <b>[Regie] </b>}
+                        {m.bezeichnung}
+                      </td>
+                      <td className="r nw">{fmtNumber(m.menge, 3)}</td>
+                      <td>{m.einheit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {(show.Material || nurRegie) && !matSumme && materials.length > 0 && (
             <section>
               <h2>Material</h2>
               <table>
@@ -220,7 +300,7 @@ export default function Report({ id }: { id: string }) {
                     <tr key={m.id}>
                       <td className="nw">{fmtDate(m.datum, false)}</td>
                       <td>
-                        {m.regie && <b>[Regie] </b>}
+                        {m.regie && !nurRegie && <b>[Regie] </b>}
                         {m.bezeichnung}
                       </td>
                       <td>{m.artikelnr}</td>
@@ -233,7 +313,7 @@ export default function Report({ id }: { id: string }) {
             </section>
           )}
 
-          {show.Notizen && notes.length > 0 && (
+          {show.Notizen && !nurRegie && notes.length > 0 && (
             <section>
               <h2>Notizen</h2>
               {notes.map((n) => (
@@ -249,7 +329,7 @@ export default function Report({ id }: { id: string }) {
             </section>
           )}
 
-          {show.Fotos && photos.length > 0 && (
+          {show.Fotos && !nurRegie && photos.length > 0 && (
             <section>
               <h2>Fotos</h2>
               <div className="report-images">
@@ -263,7 +343,7 @@ export default function Report({ id }: { id: string }) {
             </section>
           )}
 
-          {show.Skizzen && sketches.length > 0 && (
+          {show.Skizzen && !nurRegie && sketches.length > 0 && (
             <section>
               <h2>Skizzen</h2>
               <div className="report-images">
@@ -292,7 +372,7 @@ export default function Report({ id }: { id: string }) {
         <SignaturePad
           onCancel={() => setSigning(false)}
           onSave={async (name, png) => {
-            await db.signatures.add({ id: uid(), projectId: id, name, von, bis, data: png, createdAt: Date.now() });
+            await db.signatures.add({ id: uid(), projectId: id, name, von, bis, nurRegie, data: png, createdAt: Date.now() });
             setSigning(false);
           }}
         />

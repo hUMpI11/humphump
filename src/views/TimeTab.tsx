@@ -146,12 +146,10 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   const minuten = fromClock ?? Math.round((parseDecimal(stunden) || 0) * 60);
   const valid = datum !== '' && minuten > 0 && minuten <= 24 * 60;
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!valid) return;
+  const build = (forDate: string) => {
     const usesClock = fromClock !== null;
-    const data = {
-      datum,
+    return {
+      datum: forDate,
       mitarbeiter: name.trim(),
       von: usesClock ? von : '',
       bis: usesClock ? bis : '',
@@ -162,6 +160,12 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
       regie,
       fahrtKm: Math.max(0, parseDecimal(km) || 0) || undefined,
     };
+  };
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!valid) return;
+    const data = build(datum);
     if (draft.id) await db.times.update(draft.id, data);
     else await db.times.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
     await touchProject(project.id);
@@ -223,6 +227,33 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
           <input type="checkbox" checked={regie} onChange={(e) => setRegie(e.target.checked)} />
           <span>Regiearbeit (Zusatzleistung, gesondert abzurechnen)</span>
         </label>
+        {draft.id && (
+          <button
+            type="button"
+            className="btn"
+            disabled={!valid}
+            onClick={async () => {
+              await db.times.add({ ...build(isoDate()), id: uid(), projectId: project.id, createdAt: Date.now() });
+              await touchProject(project.id);
+              onClose();
+            }}
+          >
+            Als neuen Eintrag für heute kopieren
+          </button>
+        )}
+        {fromTimer && (
+          <button
+            type="button"
+            className="btn danger"
+            onClick={async () => {
+              if (!window.confirm('Laufende Zeit verwerfen, ohne sie einzutragen?')) return;
+              await db.settings.delete('timer');
+              onClose();
+            }}
+          >
+            Zeit verwerfen (z. B. versehentlich gestartet)
+          </button>
+        )}
         <FormActions disabled={!valid} onDelete={draft.id ? async () => { await db.times.delete(draft.id!); onClose(); } : undefined} />
       </form>
     </Sheet>
