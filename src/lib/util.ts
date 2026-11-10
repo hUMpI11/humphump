@@ -26,6 +26,29 @@ export function fmtDate(iso: string, withWeekday = true): string {
   });
 }
 
+export function addDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDate(new Date(y, m - 1, d + n));
+}
+
+/** Montag der Woche, in der das Datum liegt. */
+export function weekStart(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return addDays(iso, -((new Date(y, m - 1, d).getDay() + 6) % 7));
+}
+
+/** Rundet auf das nächste Vielfache von stepMin Minuten (0 = unverändert). */
+export function roundDate(d: Date, stepMin: number): Date {
+  if (!stepMin) return d;
+  const ms = stepMin * 60_000;
+  return new Date(Math.round(d.getTime() / ms) * ms);
+}
+
+/** Übliche Mindestpause nach Arbeitszeitgesetz als Vorschlag: >6 h = 30 min, >9 h = 45 min. */
+export function pauseVorschlag(bruttoMin: number): number {
+  return bruttoMin > 9 * 60 ? 45 : bruttoMin > 6 * 60 ? 30 : 0;
+}
+
 function toMinutes(t: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(t);
   if (!m) return null;

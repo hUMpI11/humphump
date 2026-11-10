@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, DEFAULT_PROFIL, getSetting, setSetting, touchProject, type Profil, type Project, type RunningTimer, type TimeEntry } from '../db';
+import { db, DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, touchProject, type Profil, type Project, type RunningTimer, type TimeEntry } from '../db';
 import { gewerkName, vorschlaege } from '../gewerke';
-import { fmtDate, fmtHours, groupByDate, hhmm, isoDate, minutesBetween, parseDecimal, uid } from '../lib/util';
+import { fmtDate, fmtHours, fmtNumber, groupByDate, hhmm, isoDate, minutesBetween, parseDecimal, pauseVorschlag, roundDate, uid } from '../lib/util';
+import { eigeneTaetigkeiten, merge } from '../lib/history';
 import { Empty, Fab, Field, FormActions, Icon, Sheet } from '../components/ui';
 import { GewerkSelect } from '../components/GewerkSelect';
 
@@ -20,9 +21,14 @@ export default function TimeTab({ project }: { project: Project }) {
 
   async function stopTimer() {
     if (!timer) return;
-    const start = new Date(timer.start);
+    // Abgerechnet wird in der Praxis in Viertelstunden – daher runden (einstellbar).
+    const step = profil?.rundung ?? DEFAULT_RUNDUNG;
+    const start = roundDate(new Date(timer.start), step);
+    let end = roundDate(new Date(), step);
+    if (end <= start) end = new Date(start.getTime() + Math.max(step, 1) * 60_000);
+    const brutto = (end.getTime() - start.getTime()) / 60_000;
     // Timer bleibt gespeichert, bis der Eintrag wirklich gesichert ist (siehe onSaved).
-    setDraft({ datum: isoDate(start), von: hhmm(start), bis: hhmm(), pauseMin: 0 });
+    setDraft({ datum: isoDate(start), von: hhmm(start), bis: hhmm(end), pauseMin: pauseVorschlag(brutto) });
   }
 
   return (
@@ -77,7 +83,7 @@ export default function TimeTab({ project }: { project: Project }) {
                   <span className="row-main">
                     <strong>{e.taetigkeit || 'Ohne Tätigkeitsangabe'}</strong>
                     <span className="muted">
-                      {[e.mitarbeiter, e.von && e.bis ? `${e.von}–${e.bis}${e.pauseMin ? ` (${e.pauseMin} min Pause)` : ''}` : '', project.gewerke.length > 1 ? gewerkName(e.gewerk) : '']
+                      {[e.mitarbeiter, e.von && e.bis ? `${e.von}–${e.bis}${e.pauseMin ? ` (${e.pauseMin} min Pause)` : ''}` : '', project.gewerke.length > 1 ? gewerkName(e.gewerk) : '', e.fahrtKm ? `${fmtNumber(e.fahrtKm, 1)} km` : '']
                         .filter(Boolean)
                         .join(' · ')}
                     </span>
@@ -131,6 +137,9 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   const [taetigkeit, setTaetigkeit] = useState(draft.taetigkeit ?? '');
   const [gewerk, setGewerk] = useState(draft.gewerk ?? project.gewerke[0] ?? 'sonstiges');
   const [regie, setRegie] = useState(draft.regie ?? false);
+  const [km, setKm] = useState(draft.fahrtKm ? String(draft.fahrtKm).replace('.', ',') : '');
+  const eigene = useLiveQuery(() => eigeneTaetigkeiten(), []) ?? [];
+  const fromTimer = !draft.id && !!draft.von;
 
   const pauseMin = Math.max(0, Math.round(parseDecimal(pause) || 0));
   const fromClock = von && bis ? minutesBetween(von, bis, pauseMin) : null;
@@ -151,6 +160,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
       taetigkeit: taetigkeit.trim(),
       gewerk,
       regie,
+      fahrtKm: Math.max(0, parseDecimal(km) || 0) || undefined,
     };
     if (draft.id) await db.times.update(draft.id, data);
     else await db.times.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
@@ -188,6 +198,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
         {fromClock !== null ? (
           <p className="calc">
             Arbeitszeit: <strong>{fmtHours(fromClock)}</strong>
+            {fromTimer && <span className="muted"> · Zeiten gerundet, Pause vorgeschlagen – bitte prüfen</span>}
           </p>
         ) : (
           <Field label="… oder Stunden direkt" hint="Ohne Beginn/Ende, z. B. 7,5">
@@ -199,12 +210,15 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
           <textarea rows={2} value={taetigkeit} onChange={(e) => setTaetigkeit(e.target.value)} placeholder="Was wurde gemacht?" />
         </Field>
         <div className="suggest">
-          {vorschlaege(gewerk).taetigkeiten.map((t) => (
+          {merge(eigene, vorschlaege(gewerk).taetigkeiten, (t) => t).map((t) => (
             <button key={t} type="button" className="chip" onClick={() => setTaetigkeit((cur) => (cur.trim() ? `${cur.trim()}, ${t}` : t))}>
               {t}
             </button>
           ))}
         </div>
+        <Field label="Gefahrene Kilometer (optional)" hint="Für die Abrechnung der Anfahrt.">
+          <input inputMode="decimal" value={km} onChange={(e) => setKm(e.target.value)} placeholder="0" />
+        </Field>
         <label className="check">
           <input type="checkbox" checked={regie} onChange={(e) => setRegie(e.target.checked)} />
           <span>Regiearbeit (Zusatzleistung, gesondert abzurechnen)</span>

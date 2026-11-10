@@ -8,6 +8,9 @@ const ICONS: Record<string, ReactNode> = {
   note: <path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7" />,
   camera: (<><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>),
   pencil: <path d="M4 20l1-4L16 5l3 3L8 19l-4 1zM14 7l3 3" />,
+  phone: <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A15 15 0 0 1 4 5a1 1 0 0 1 1-1z" />,
+  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  calendar: (<><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M8 3v4M16 3v4" /></>),
   plus: <path d="M12 5v14M5 12h14" />,
   back: <path d="M15 5l-7 7 7 7" />,
   trash: <path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" />,
@@ -57,7 +60,9 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
-    <div className="sheet-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    // Bewusst kein Schließen durch Tippen auf den Hintergrund: mit Handschuhen oder
+    // nassen Fingern wäre sonst schnell ein halb ausgefülltes Formular weg.
+    <div className="sheet-backdrop">
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet-head">
           <h2>{title}</h2>

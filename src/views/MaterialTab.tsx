@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, touchProject, type MaterialEntry, type Project } from '../db';
 import { EINHEITEN, vorschlaege } from '../gewerke';
 import { fmtDate, fmtNumber, groupByDate, isoDate, parseDecimal, uid } from '../lib/util';
+import { eigeneMaterialien, merge } from '../lib/history';
 import { Empty, Fab, Field, FormActions, Sheet } from '../components/ui';
 import { GewerkSelect } from '../components/GewerkSelect';
 
@@ -59,7 +60,9 @@ function MaterialForm({ project, draft, onClose }: { project: Project; draft: Dr
   const [regie, setRegie] = useState(draft.regie ?? false);
   const [more, setMore] = useState(false);
 
-  const katalog = vorschlaege(gewerk).material;
+  const eigene = useLiveQuery(() => eigeneMaterialien(), []) ?? [];
+  // Eigene, schon einmal erfasste Materialien stehen vor dem Standardkatalog.
+  const katalog = merge(eigene, vorschlaege(gewerk).material, ([b]) => b);
   const m = parseDecimal(menge);
   const valid = bezeichnung.trim() !== '' && m > 0 && datum !== '';
   const q = bezeichnung.trim().toLowerCase();

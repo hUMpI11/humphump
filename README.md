@@ -7,13 +7,17 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 ## Funktionen
 
 - **Baustellen** mit Kunde, Adresse (öffnet Karten), Auftragsnummer, Gewerken, Status aktiv/abgeschlossen, Suche
-- **Stunden**: Start/Stopp-Timer oder Nachtrag (Beginn/Ende/Pause oder Stunden direkt), Mitarbeiter, Tätigkeit, Regie-Kennzeichen
+- **Startseite**: Stunden heute/diese Woche, laufende Zeit, offene Punkte je Baustelle, Erinnerung an die Datensicherung
+- **Stunden**: Start/Stopp-Timer (rundet auf Viertelstunden, schlägt die Pause vor) oder Nachtrag (Beginn/Ende/Pause oder Stunden direkt), Mitarbeiter, Tätigkeit, gefahrene Kilometer, Regie-Kennzeichen
+- **Wochenübersicht** über alle Baustellen mit Summen (Stunden, Regie, Kilometer) und CSV-Export
 - **Material**: Bezeichnung, Menge, Einheit, Artikelnummer, Regie; Serienerfassung („Speichern & nächste Position“)
 - **Gewerke** mit Vorschlagslisten für Tätigkeiten und Material: MSR, Heizung, Lüftung, Sanitär, Elektro, Schreiner, Maurer, Maler, Trockenbau, Sonstiges (`src/gewerke.ts`)
-- **Notizen** mit Datum (Diktieren über die iOS-Tastatur)
+- **Notizen** mit Datum (Diktieren über die iOS-Tastatur) und **offene Punkte** zum Abhaken
+- **Vorschläge lernen mit**: eigene Materialien und Tätigkeiten stehen vor dem Standardkatalog
+- **Kontakt**: Ansprechpartner mit Telefonnummer zum Antippen
 - **Fotos** aus Kamera oder Mediathek, automatisch verkleinert (max. 1600 px), mit Beschreibung
 - **Skizzen**: Stift, Linie, Rechteck, Text/Maß, Radierer, Rückgängig; frei oder auf einem Foto; Apple Pencil mit Handballen-Schutz
-- **Bericht** je Baustelle und Zeitraum als Druck/PDF, Stunden und Material als CSV (Excel-tauglich)
+- **Bericht** je Baustelle und Zeitraum als Druck/PDF, mit **Unterschrift des Kunden auf dem Display**, Stunden und Material als CSV (Excel-tauglich)
 - **Datensicherung** als Datei (Export/Import)
 - **iPad**: zweispaltig (Baustellenliste + Detail), Skizzen im Vollbild; Hell-/Dunkelmodus
 
@@ -23,7 +27,8 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 - **Datenverlust ist möglich**: Wird die App vom Home-Bildschirm gelöscht oder werden in iOS die Website-Daten gelöscht, sind die Daten weg. Regelmäßig sichern (Einstellungen → Sicherung erstellen).
 - **Nicht auf echten Geräten getestet.** Geprüft wurde in Chromium mit iPhone-/iPad-Bildschirmgrößen. Kamera, Apple Pencil, Teilen-Dialog, Drucken und Speicherverhalten in Safari/iOS müssen auf echter Hardware nachgeprüft werden.
 - Skizzen haben kein Zoomen/Verschieben; die Zeichenfläche wird eingepasst.
-- Kein Preis-/Artikelstamm, keine Kalkulation, keine Rechnung, keine Kundenunterschrift auf dem Display, keine Anbindung an Lohn- oder Branchensoftware.
+- Kein Preis-/Artikelstamm, keine Kalkulation, keine Rechnung, keine Anbindung an Lohn- oder Branchensoftware.
+- Die Kundenunterschrift ist ein Bild mit Zeitstempel für den gewählten Berichtszeitraum. Einträge lassen sich danach noch ändern – beweissicher ist erst das direkt nach der Unterschrift erzeugte PDF.
 - Die Zeiterfassung ist ein Arbeitsnachweis je Baustelle, **kein** manipulationssicheres System zur gesetzlichen Arbeitszeiterfassung.
 
 ## Entwicklung

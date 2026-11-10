@@ -70,3 +70,31 @@ describe('Routing', () => {
     expect(parseRoute('#/p/abc/quatsch')).toEqual({ name: 'projekt', id: 'abc', tab: 'uebersicht' });
   });
 });
+
+import { addDays, pauseVorschlag, roundDate, weekStart } from './util';
+import { merge } from './history';
+
+describe('Tagesablauf-Helfer', () => {
+  it('findet den Montag der Woche, auch über Monats- und Jahresgrenzen', () => {
+    expect(weekStart('2026-11-10')).toBe('2026-11-09'); // Dienstag
+    expect(weekStart('2026-11-09')).toBe('2026-11-09'); // Montag
+    expect(weekStart('2026-11-15')).toBe('2026-11-09'); // Sonntag
+    expect(weekStart('2027-01-01')).toBe('2026-12-28');
+    expect(addDays('2026-12-28', 6)).toBe('2027-01-03');
+  });
+  it('rundet Timer-Zeiten auf Viertelstunden', () => {
+    const r = roundDate(new Date(2026, 10, 10, 7, 8), 15);
+    expect([r.getHours(), r.getMinutes()]).toEqual([7, 15]);
+    const s = roundDate(new Date(2026, 10, 10, 7, 7), 15);
+    expect([s.getHours(), s.getMinutes()]).toEqual([7, 0]);
+    expect(roundDate(new Date(2026, 10, 10, 7, 7), 0).getMinutes()).toBe(7);
+  });
+  it('schlägt die Pause nach Arbeitsdauer vor', () => {
+    expect(pauseVorschlag(6 * 60)).toBe(0);
+    expect(pauseVorschlag(6 * 60 + 15)).toBe(30);
+    expect(pauseVorschlag(9 * 60 + 15)).toBe(45);
+  });
+  it('stellt eigene Vorschläge vor den Katalog und entfernt Dubletten', () => {
+    expect(merge(['Kabel gezogen', 'Eigenes'], ['Inbetriebnahme', 'kabel gezogen'], (t) => t)).toEqual(['Kabel gezogen', 'Eigenes', 'Inbetriebnahme']);
+  });
+});

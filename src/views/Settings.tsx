@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { DEFAULT_PROFIL, getSetting, setSetting, type Profil } from '../db';
+import { DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, type Profil } from '../db';
 import { createBackup, restoreBackup, shareOrDownload } from '../lib/export';
 import { fmtDate, isoDate } from '../lib/util';
 import { Field, Header } from '../components/ui';
@@ -74,6 +74,15 @@ export default function Settings() {
           </Field>
           <Field label="Firma" hint="Erscheint im Kopf der Berichte.">
             <input value={profil?.firma ?? ''} onChange={(e) => update({ firma: e.target.value })} autoComplete="organization" />
+          </Field>
+          <Field label="Timer-Zeiten runden auf" hint="Beginn und Ende werden beim Stoppen gerundet; vor dem Speichern noch änderbar.">
+            <select value={profil?.rundung ?? DEFAULT_RUNDUNG} onChange={(e) => update({ rundung: Number(e.target.value) })}>
+              <option value={0}>nicht runden</option>
+              <option value={5}>5 Minuten</option>
+              <option value={10}>10 Minuten</option>
+              <option value={15}>15 Minuten</option>
+              <option value={30}>30 Minuten</option>
+            </select>
           </Field>
         </section>
 

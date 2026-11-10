@@ -3,7 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, DEFAULT_PROFIL, getSetting, type Profil } from '../db';
 import { gewerkName } from '../gewerke';
 import { shareOrDownload, toCsv } from '../lib/export';
-import { fmtDate, fmtHours, fmtNumber, inRange, isoDate, safeFilename } from '../lib/util';
+import { fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, uid } from '../lib/util';
+import { SignaturePad } from '../components/SignaturePad';
 import { BufferImg, Header } from '../components/ui';
 
 const SECTIONS = ['Stunden', 'Material', 'Notizen', 'Fotos', 'Skizzen'] as const;
@@ -14,12 +15,13 @@ const byDate = <T extends { datum: string; createdAt: number }>(a: T, b: T) => (
 export default function Report({ id }: { id: string }) {
   const [von, setVon] = useState('');
   const [bis, setBis] = useState('');
+  const [signing, setSigning] = useState(false);
   const [show, setShow] = useState<Record<Section, boolean>>({ Stunden: true, Material: true, Notizen: true, Fotos: true, Skizzen: true });
 
   const data = useLiveQuery(async () => {
     const project = await db.projects.get(id);
     if (!project) return null;
-    const [times, materials, notes, photos, sketches, blobs, profil] = await Promise.all([
+    const [times, materials, notes, photos, sketches, blobs, profil, signatures] = await Promise.all([
       db.times.where('projectId').equals(id).toArray(),
       db.materials.where('projectId').equals(id).toArray(),
       db.notes.where('projectId').equals(id).toArray(),
@@ -27,8 +29,9 @@ export default function Report({ id }: { id: string }) {
       db.sketches.where('projectId').equals(id).toArray(),
       db.blobs.where('projectId').equals(id).toArray(),
       getSetting<Profil>('profil', DEFAULT_PROFIL),
+      db.signatures.where('projectId').equals(id).toArray(),
     ]);
-    return { project, times, materials, notes, photos, sketches, blobs: new Map(blobs.map((b) => [b.id, b])), profil };
+    return { project, times, materials, notes, photos, sketches, blobs: new Map(blobs.map((b) => [b.id, b])), profil, signatures };
   }, [id]);
 
   if (data === undefined) return null;
@@ -43,6 +46,9 @@ export default function Report({ id }: { id: string }) {
   const sketches = data.sketches.filter((s) => inRange(isoDate(new Date(s.createdAt)), von, bis)).sort((a, b) => a.createdAt - b.createdAt);
 
   const sum = times.reduce((s, t) => s + t.minuten, 0);
+  const sumKm = times.reduce((s, t) => s + (t.fahrtKm ?? 0), 0);
+  // Eine Unterschrift gilt genau für den Zeitraum, für den sie geleistet wurde.
+  const signature = data.signatures.filter((s) => s.von === von && s.bis === bis).sort((a, b) => b.createdAt - a.createdAt)[0];
   const sumRegie = times.filter((t) => t.regie).reduce((s, t) => s + t.minuten, 0);
   const zeitraum = von || bis ? `${von ? fmtDate(von, false) : 'Beginn'} – ${bis ? fmtDate(bis, false) : 'heute'}` : 'Gesamte Baustelle';
   const base = safeFilename(project.name);
@@ -54,8 +60,8 @@ export default function Report({ id }: { id: string }) {
       new Blob(
         [
           toCsv([
-            ['Datum', 'Mitarbeiter', 'Beginn', 'Ende', 'Pause (min)', 'Stunden', 'Gewerk', 'Regie', 'Tätigkeit'],
-            ...times.map((t) => [t.datum, t.mitarbeiter, t.von, t.bis, t.pauseMin, Math.round((t.minuten / 60) * 100) / 100, gewerkName(t.gewerk), t.regie, t.taetigkeit]),
+            ['Datum', 'Mitarbeiter', 'Beginn', 'Ende', 'Pause (min)', 'Stunden', 'km', 'Gewerk', 'Regie', 'Tätigkeit'],
+            ...times.map((t) => [t.datum, t.mitarbeiter, t.von, t.bis, t.pauseMin, Math.round((t.minuten / 60) * 100) / 100, t.fahrtKm ?? 0, gewerkName(t.gewerk), t.regie, t.taetigkeit]),
           ]),
         ],
         { type: 'text/csv' },
@@ -105,6 +111,15 @@ export default function Report({ id }: { id: string }) {
             ))}
           </div>
           <div className="button-col">
+            {signature ? (
+              <button type="button" className="btn danger" onClick={() => window.confirm('Unterschrift entfernen?') && db.signatures.delete(signature.id)}>
+                Unterschrift von {signature.name} entfernen
+              </button>
+            ) : (
+              <button type="button" className="btn" onClick={() => setSigning(true)}>
+                Kunde unterschreiben lassen
+              </button>
+            )}
             <button type="button" className="btn primary" onClick={() => window.print()}>
               Drucken / als PDF sichern
             </button>
@@ -165,6 +180,7 @@ export default function Report({ id }: { id: string }) {
                         {t.regie && <b>[Regie] </b>}
                         {multi && <i>{gewerkName(t.gewerk)}: </i>}
                         {t.taetigkeit}
+                        {t.fahrtKm ? ` (${fmtNumber(t.fahrtKm, 1)} km)` : ''}
                       </td>
                       <td className="r nw">{fmtHours(t.minuten).replace(' h', '')}</td>
                     </tr>
@@ -175,6 +191,12 @@ export default function Report({ id }: { id: string }) {
                     <td colSpan={4}>Summe{sumRegie ? ` (davon Regie: ${fmtHours(sumRegie)})` : ''}</td>
                     <td className="r nw">{fmtHours(sum)}</td>
                   </tr>
+                  {sumKm > 0 && (
+                    <tr>
+                      <td colSpan={4}>Gefahrene Kilometer</td>
+                      <td className="r nw">{fmtNumber(sumKm, 1)} km</td>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             </section>
@@ -219,6 +241,7 @@ export default function Report({ id }: { id: string }) {
                   <strong>
                     {fmtDate(n.datum, false)}
                     {n.titel ? ` – ${n.titel}` : ''}
+                    {n.todo ? (n.done ? ' [erledigt]' : ' [offen]') : ''}
                   </strong>
                   <p className="pre">{n.text}</p>
                 </div>
@@ -256,10 +279,24 @@ export default function Report({ id }: { id: string }) {
 
           <div className="signatures">
             <div>Ort, Datum / Unterschrift Auftragnehmer</div>
-            <div>Ort, Datum / Unterschrift Auftraggeber</div>
+            <div className={signature ? 'signed' : ''}>
+              {signature && <BufferImg data={signature.data} mime="image/png" alt={`Unterschrift ${signature.name}`} />}
+              {signature
+                ? `${signature.name}, unterschrieben am ${fmtDate(isoDate(new Date(signature.createdAt)), false)} um ${hhmm(new Date(signature.createdAt))} Uhr`
+                : 'Ort, Datum / Unterschrift Auftraggeber'}
+            </div>
           </div>
         </article>
       </div>
+      {signing && (
+        <SignaturePad
+          onCancel={() => setSigning(false)}
+          onSave={async (name, png) => {
+            await db.signatures.add({ id: uid(), projectId: id, name, von, bis, data: png, createdAt: Date.now() });
+            setSigning(false);
+          }}
+        />
+      )}
     </>
   );
 }

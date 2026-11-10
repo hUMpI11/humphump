@@ -11,6 +11,8 @@ export interface Project {
   gewerke: string[];
   status: ProjectStatus;
   beschreibung: string;
+  ansprechpartner?: string;
+  telefon?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -27,6 +29,7 @@ export interface TimeEntry {
   taetigkeit: string;
   gewerk: string;
   regie: boolean;
+  fahrtKm?: number;
   createdAt: number;
 }
 
@@ -49,8 +52,22 @@ export interface Note {
   datum: string;
   titel: string;
   text: string;
+  /** Offener Punkt (To-do) statt reiner Notiz */
+  todo?: boolean;
+  done?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Unterschrift des Auftraggebers für einen Berichtszeitraum. */
+export interface Signature {
+  id: string;
+  projectId: string;
+  name: string;
+  von: string;
+  bis: string;
+  data: ArrayBuffer; // PNG
+  createdAt: number;
 }
 
 /** Foto-Metadaten + Vorschaubild. Das Vollbild liegt in `blobs` unter derselben id. */
@@ -106,7 +123,11 @@ export interface Setting {
 export interface Profil {
   name: string;
   firma: string;
+  /** Timer-Zeiten auf so viele Minuten runden (0 = aus). */
+  rundung?: number;
 }
+
+export const DEFAULT_RUNDUNG = 15;
 
 export interface RunningTimer {
   projectId: string;
@@ -121,6 +142,7 @@ export const db = new Dexie('baustellenbuch') as Dexie & {
   photos: EntityTable<Photo, 'id'>;
   sketches: EntityTable<Sketch, 'id'>;
   blobs: EntityTable<BlobRecord, 'id'>;
+  signatures: EntityTable<Signature, 'id'>;
   settings: EntityTable<Setting, 'key'>;
 };
 
@@ -135,7 +157,9 @@ db.version(1).stores({
   settings: 'key',
 });
 
-export const TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'settings'] as const;
+db.version(2).stores({ signatures: 'id, projectId' });
+
+export const TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'signatures', 'settings'] as const;
 
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const row = await db.settings.get(key);
@@ -153,7 +177,7 @@ export function touchProject(id: string) {
 }
 
 export async function deleteProject(id: string) {
-  await db.transaction('rw', [db.projects, db.times, db.materials, db.notes, db.photos, db.sketches, db.blobs, db.settings], async () => {
+  await db.transaction('rw', [db.projects, db.times, db.materials, db.notes, db.photos, db.sketches, db.blobs, db.signatures, db.settings], async () => {
     await Promise.all([
       db.times.where('projectId').equals(id).delete(),
       db.materials.where('projectId').equals(id).delete(),
@@ -161,6 +185,7 @@ export async function deleteProject(id: string) {
       db.photos.where('projectId').equals(id).delete(),
       db.sketches.where('projectId').equals(id).delete(),
       db.blobs.where('projectId').equals(id).delete(),
+      db.signatures.where('projectId').equals(id).delete(),
     ]);
     const timer = await db.settings.get('timer');
     if (timer && (timer.value as RunningTimer | null)?.projectId === id) await db.settings.delete('timer');

@@ -5,7 +5,7 @@ import { go } from '../lib/router';
 import { uid } from '../lib/util';
 import { Field, Header } from '../components/ui';
 
-const EMPTY = { name: '', kunde: '', adresse: '', auftragsnr: '', beschreibung: '', gewerke: [] as string[] };
+const EMPTY = { name: '', kunde: '', adresse: '', auftragsnr: '', beschreibung: '', ansprechpartner: '', telefon: '', gewerke: [] as string[] };
 
 export default function ProjectForm({ id }: { id?: string }) {
   const [form, setForm] = useState(EMPTY);
@@ -17,7 +17,7 @@ export default function ProjectForm({ id }: { id?: string }) {
     db.projects.get(id).then((p) => {
       if (p) {
         setExisting(p);
-        setForm({ name: p.name, kunde: p.kunde, adresse: p.adresse, auftragsnr: p.auftragsnr, beschreibung: p.beschreibung, gewerke: p.gewerke });
+        setForm({ name: p.name, kunde: p.kunde, adresse: p.adresse, auftragsnr: p.auftragsnr, beschreibung: p.beschreibung, ansprechpartner: p.ansprechpartner ?? '', telefon: p.telefon ?? '', gewerke: p.gewerke });
       }
       setReady(true);
     });
@@ -31,7 +31,7 @@ export default function ProjectForm({ id }: { id?: string }) {
     e.preventDefault();
     if (!valid) return;
     const now = Date.now();
-    const base = { ...form, name: form.name.trim(), kunde: form.kunde.trim(), adresse: form.adresse.trim(), auftragsnr: form.auftragsnr.trim() };
+    const base = { ...form, name: form.name.trim(), kunde: form.kunde.trim(), adresse: form.adresse.trim(), auftragsnr: form.auftragsnr.trim(), ansprechpartner: form.ansprechpartner.trim(), telefon: form.telefon.trim() };
     if (existing) {
       await db.projects.update(existing.id, { ...base, updatedAt: now });
       go(`/p/${existing.id}`, true);
@@ -58,6 +58,14 @@ export default function ProjectForm({ id }: { id?: string }) {
         <Field label="Adresse">
           <input value={form.adresse} onChange={(e) => set('adresse', e.target.value)} placeholder="Straße, PLZ Ort" autoComplete="off" />
         </Field>
+        <div className="grid2">
+          <Field label="Ansprechpartner vor Ort">
+            <input value={form.ansprechpartner} onChange={(e) => set('ansprechpartner', e.target.value)} autoComplete="off" />
+          </Field>
+          <Field label="Telefon">
+            <input type="tel" inputMode="tel" value={form.telefon} onChange={(e) => set('telefon', e.target.value)} autoComplete="off" />
+          </Field>
+        </div>
         <Field label="Auftrags- / Projektnummer">
           <input value={form.auftragsnr} onChange={(e) => set('auftragsnr', e.target.value)} autoComplete="off" autoCapitalize="characters" />
         </Field>

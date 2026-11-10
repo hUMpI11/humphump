@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { db, getSetting, type RunningTimer } from '../db';
 import { gewerkName } from '../gewerke';
-import { fmtHours } from '../lib/util';
+import { addDays, fmtHours, hhmm, isoDate, weekStart } from '../lib/util';
 import { Empty, Header, Icon } from '../components/ui';
 
 export default function ProjectList({ activeId }: { activeId?: string }) {
@@ -10,10 +10,28 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
   const [showDone, setShowDone] = useState(false);
 
   const data = useLiveQuery(async () => {
-    const [projects, times] = await Promise.all([db.projects.toArray(), db.times.toArray()]);
+    const [projects, times, notes, timer, lastBackup] = await Promise.all([
+      db.projects.toArray(),
+      db.times.toArray(),
+      db.notes.toArray(),
+      getSetting<RunningTimer | null>('timer', null),
+      getSetting<string>('letzteSicherung', ''),
+    ]);
+    const today = isoDate();
+    const monday = weekStart(today);
     const minutes = new Map<string, number>();
-    for (const t of times) minutes.set(t.projectId, (minutes.get(t.projectId) ?? 0) + t.minuten);
-    return { projects: projects.sort((a, b) => b.updatedAt - a.updatedAt), minutes };
+    const offen = new Map<string, number>();
+    let heute = 0;
+    let woche = 0;
+    for (const t of times) {
+      minutes.set(t.projectId, (minutes.get(t.projectId) ?? 0) + t.minuten);
+      if (t.datum === today) heute += t.minuten;
+      if (t.datum >= monday && t.datum <= addDays(monday, 6)) woche += t.minuten;
+    }
+    for (const n of notes) if (n.todo && !n.done) offen.set(n.projectId, (offen.get(n.projectId) ?? 0) + 1);
+    // Ohne Sicherung reicht ein verlorenes Handy, und alle Nachweise sind weg – also erinnern.
+    const backupFaellig = times.length + notes.length > 0 && (!lastBackup || lastBackup < addDays(today, -7));
+    return { projects: projects.sort((a, b) => b.updatedAt - a.updatedAt), minutes, offen, heute, woche, timer, backupFaellig, lastBackup };
   }, []);
 
   const q = query.trim().toLowerCase();
@@ -53,6 +71,36 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
           </div>
         </div>
 
+        {data && all.length > 0 && (
+          <div className="home-info">
+            {data.timer && (
+              <a className="card timer running" href={`#/p/${data.timer.projectId}/stunden`}>
+                <div>
+                  <strong>Zeit läuft</strong>
+                  <span className="muted">
+                    {all.find((p) => p.id === data.timer!.projectId)?.name ?? 'Baustelle'} · seit {hhmm(new Date(data.timer.start))} Uhr
+                  </span>
+                </div>
+                <Icon name="chevron" size={18} />
+              </a>
+            )}
+            <a className="card today" href="#/woche">
+              <span>
+                <span className="num">{fmtHours(data.heute)}</span> heute
+              </span>
+              <span>
+                <span className="num">{fmtHours(data.woche)}</span> diese Woche
+              </span>
+              <Icon name="chevron" size={18} />
+            </a>
+            {data.backupFaellig && (
+              <a className="warnbox" href="#/einstellungen">
+                <strong>Datensicherung fällig.</strong> {data.lastBackup ? 'Die letzte Sicherung ist älter als 7 Tage.' : 'Es wurde noch nie gesichert.'} Jetzt sichern →
+              </a>
+            )}
+          </div>
+        )}
+
         {data && all.length === 0 && (
           <div className="empty">
             <Icon name="box" size={44} />
@@ -78,6 +126,7 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
                         {gewerkName(g)}
                       </span>
                     ))}
+                    {data?.offen.get(p.id) ? <span className="chip warn">{data.offen.get(p.id)} offen</span> : null}
                   </span>
                 </div>
                 <div className="card-side">

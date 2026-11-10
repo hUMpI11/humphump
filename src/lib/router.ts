@@ -7,6 +7,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'neu' }
   | { name: 'einstellungen' }
+  | { name: 'woche' }
   | { name: 'projekt'; id: string; tab: Tab }
   | { name: 'bearbeiten'; id: string }
   | { name: 'bericht'; id: string }
@@ -16,6 +17,7 @@ export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   if (parts[0] === 'neu') return { name: 'neu' };
   if (parts[0] === 'einstellungen') return { name: 'einstellungen' };
+  if (parts[0] === 'woche') return { name: 'woche' };
   if (parts[0] === 'p' && parts[1]) {
     const id = parts[1];
     if (parts[2] === 'bearbeiten') return { name: 'bearbeiten', id };

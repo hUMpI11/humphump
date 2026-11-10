@@ -5,6 +5,7 @@ import ProjectForm from './views/ProjectForm';
 import ProjectDetail from './views/ProjectDetail';
 import Report from './views/Report';
 import Settings from './views/Settings';
+import Week from './views/Week';
 import SketchEditor from './views/SketchEditor';
 
 export default function App() {
@@ -24,6 +25,9 @@ export default function App() {
       break;
     case 'einstellungen':
       main = <Settings />;
+      break;
+    case 'woche':
+      main = <Week />;
       break;
     case 'bericht':
       main = <Report key={route.id} id={route.id} />;
