@@ -274,6 +274,11 @@ input[type='search'] { border-radius: 12px; }
 .swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
 .dot { border-radius: 50%; background: currentColor; }
 
+.toast { position: fixed; left: calc(12px + var(--sal)); right: calc(12px + var(--sar)); top: calc(12px + var(--sat)); z-index: 100; background: var(--danger); color: #fff; border-radius: 12px; padding: 10px 6px 10px 14px; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+.toast span { flex: 1; }
+.toast .link { color: #fff; }
+.crash { height: 100dvh; justify-content: center; }
+
 /* ---------- Unterschrift ---------- */
 .signpad { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; gap: 10px; padding: calc(8px + var(--sat)) calc(14px + var(--sar)) calc(14px + var(--sab)) calc(14px + var(--sal)); }
 .signpad-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

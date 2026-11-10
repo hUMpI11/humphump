@@ -20,6 +20,7 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 - **Skizzen**: Stift, Linie, Rechteck, Text/Maß, Radierer, Rückgängig; frei oder auf einem Foto; Apple Pencil mit Handballen-Schutz
 - **Bericht** je Baustelle und Zeitraum als Druck/PDF, wahlweise als **Regiebericht** (nur Zusatzleistungen), mit **Unterschrift des Kunden auf dem Display**, als Text zum Teilen (WhatsApp, Mail), Stunden und Material als CSV (Excel-tauglich)
 - **Datensicherung** als Datei (Export/Import)
+- **Fehlbedienung abgefangen**: Doppeltipp auf „Speichern“ erzeugt keinen doppelten Eintrag; ein über Nacht vergessener Timer fragt nach dem echten Ende statt eines zu raten; ein voller Gerätespeicher wird gemeldet
 - **iPad**: zweispaltig (Baustellenliste + Detail), Skizzen im Vollbild; Hell-/Dunkelmodus
 
 ## Bekannte Grenzen – bitte lesen

@@ -4,10 +4,19 @@ import { db, DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, touchProje
 import { gewerkName, vorschlaege } from '../gewerke';
 import { fmtDate, fmtHours, fmtNumber, groupByDate, hhmm, isoDate, minutesBetween, parseDecimal, pauseVorschlag, roundDate, uid } from '../lib/util';
 import { eigeneTaetigkeiten, merge } from '../lib/history';
+import { useLock } from '../lib/useLock';
 import { Empty, Fab, Field, FormActions, Icon, Sheet } from '../components/ui';
 import { GewerkSelect } from '../components/GewerkSelect';
 
 type Draft = Partial<TimeEntry>;
+
+/** Läuft ein Timer länger, wurde er ziemlich sicher vergessen. */
+const VERGESSEN_MS = 14 * 3_600_000;
+
+function seit(start: number): string {
+  const d = new Date(start);
+  return isoDate(d) === isoDate() ? `seit ${hhmm(d)} Uhr` : `seit ${fmtDate(isoDate(d))}, ${hhmm(d)} Uhr`;
+}
 
 export default function TimeTab({ project }: { project: Project }) {
   const entries = useLiveQuery(() => db.times.where('projectId').equals(project.id).toArray(), [project.id]);
@@ -24,6 +33,11 @@ export default function TimeTab({ project }: { project: Project }) {
     // Abgerechnet wird in der Praxis in Viertelstunden – daher runden (einstellbar).
     const step = profil?.rundung ?? DEFAULT_RUNDUNG;
     const start = roundDate(new Date(timer.start), step);
+    if (Date.now() - timer.start > VERGESSEN_MS) {
+      // Über Nacht vergessen zu stoppen: kein Ende raten, sondern nachfragen.
+      setDraft({ datum: isoDate(start), von: hhmm(start), bis: '', pauseMin: 0 });
+      return;
+    }
     let end = roundDate(new Date(), step);
     if (end <= start) end = new Date(start.getTime() + Math.max(step, 1) * 60_000);
     const brutto = (end.getTime() - start.getTime()) / 60_000;
@@ -39,7 +53,8 @@ export default function TimeTab({ project }: { project: Project }) {
             <div>
               <strong>Zeit läuft</strong>
               <span className="muted">
-                seit {hhmm(new Date(timer.start))} Uhr · <Elapsed since={timer.start} />
+                {seit(timer.start)} · <Elapsed since={timer.start} />
+                {Date.now() - timer.start > VERGESSEN_MS && ' · vergessen zu stoppen?'}
               </span>
             </div>
             <button type="button" className="btn danger" onClick={stopTimer}>
@@ -140,6 +155,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   const [km, setKm] = useState(draft.fahrtKm ? String(draft.fahrtKm).replace('.', ',') : '');
   const eigene = useLiveQuery(() => eigeneTaetigkeiten(), []) ?? [];
   const fromTimer = !draft.id && !!draft.von;
+  const lock = useLock();
 
   const pauseMin = Math.max(0, Math.round(parseDecimal(pause) || 0));
   const fromClock = von && bis ? minutesBetween(von, bis, pauseMin) : null;
@@ -165,11 +181,13 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!valid) return;
-    const data = build(datum);
-    if (draft.id) await db.times.update(draft.id, data);
-    else await db.times.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
-    await touchProject(project.id);
-    onSaved();
+    await lock(async () => {
+      const data = build(datum);
+      if (draft.id) await db.times.update(draft.id, data);
+      else await db.times.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
+      await touchProject(project.id);
+      onSaved();
+    });
   }
 
   return (
@@ -199,6 +217,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
             <input inputMode="numeric" value={pause} onChange={(e) => setPause(e.target.value)} disabled={!(von && bis)} />
           </Field>
         </div>
+        {fromTimer && !bis && <p className="warnbox">Die Zeit läuft schon sehr lange – vermutlich wurde das Stoppen vergessen. Bitte das tatsächliche Ende eintragen oder die Zeit unten verwerfen.</p>}
         {fromClock !== null ? (
           <p className="calc">
             Arbeitszeit: <strong>{fmtHours(fromClock)}</strong>
@@ -232,11 +251,13 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
             type="button"
             className="btn"
             disabled={!valid}
-            onClick={async () => {
-              await db.times.add({ ...build(isoDate()), id: uid(), projectId: project.id, createdAt: Date.now() });
-              await touchProject(project.id);
-              onClose();
-            }}
+            onClick={() =>
+              lock(async () => {
+                await db.times.add({ ...build(isoDate()), id: uid(), projectId: project.id, createdAt: Date.now() });
+                await touchProject(project.id);
+                onClose();
+              })
+            }
           >
             Als neuen Eintrag für heute kopieren
           </button>

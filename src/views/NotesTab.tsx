@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, touchProject, type Note, type Project } from '../db';
 import { fmtDate, groupByDate, isoDate, uid } from '../lib/util';
+import { useLock } from '../lib/useLock';
 import { Empty, Fab, Field, FormActions, Icon, Sheet } from '../components/ui';
 
 type Draft = Partial<Note>;
@@ -68,16 +69,19 @@ function NoteForm({ project, draft, onClose }: { project: Project; draft: Draft;
   const [text, setText] = useState(draft.text ?? '');
   const [todo, setTodo] = useState(draft.todo ?? false);
   const valid = (titel.trim() !== '' || text.trim() !== '') && datum !== '';
+  const lock = useLock();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!valid) return;
-    const now = Date.now();
-    const data = { datum, titel: titel.trim(), text: text.trim(), todo, done: todo ? (draft.done ?? false) : false, updatedAt: now };
-    if (draft.id) await db.notes.update(draft.id, data);
-    else await db.notes.add({ ...data, id: uid(), projectId: project.id, createdAt: now });
-    await touchProject(project.id);
-    onClose();
+    await lock(async () => {
+      const now = Date.now();
+      const data = { datum, titel: titel.trim(), text: text.trim(), todo, done: todo ? (draft.done ?? false) : false, updatedAt: now };
+      if (draft.id) await db.notes.update(draft.id, data);
+      else await db.notes.add({ ...data, id: uid(), projectId: project.id, createdAt: now });
+      await touchProject(project.id);
+      onClose();
+    });
   }
 
   return (

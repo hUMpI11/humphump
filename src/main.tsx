@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
+import { ErrorBoundary, GlobalErrors } from './components/Problems';
 import './styles.css';
 
 registerSW({ immediate: true });
@@ -11,6 +12,9 @@ navigator.storage?.persist?.().catch(() => undefined);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+    <GlobalErrors />
   </StrictMode>,
 );

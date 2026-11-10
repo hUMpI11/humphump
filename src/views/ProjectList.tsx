@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, getSetting, setSetting, type RunningTimer } from '../db';
 import { gewerkName } from '../gewerke';
-import { addDays, fmtHours, hhmm, isoDate, weekStart } from '../lib/util';
+import { addDays, fmtDate, fmtHours, hhmm, isoDate, weekStart } from '../lib/util';
 import { Empty, Header, Icon } from '../components/ui';
 
 export default function ProjectList({ activeId }: { activeId?: string }) {
@@ -79,7 +79,8 @@ export default function ProjectList({ activeId }: { activeId?: string }) {
                 <div>
                   <strong>Zeit läuft</strong>
                   <span className="muted">
-                    {all.find((p) => p.id === data.timer!.projectId)?.name ?? 'Baustelle'} · seit {hhmm(new Date(data.timer.start))} Uhr
+                    {all.find((p) => p.id === data.timer!.projectId)?.name ?? 'Baustelle'} · seit {isoDate(new Date(data.timer.start)) === isoDate() ? '' : `${fmtDate(isoDate(new Date(data.timer.start)))}, `}
+                    {hhmm(new Date(data.timer.start))} Uhr
                   </span>
                 </div>
                 <Icon name="chevron" size={18} />

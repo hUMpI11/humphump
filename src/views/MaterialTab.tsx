@@ -4,6 +4,7 @@ import { db, touchProject, type MaterialEntry, type Project } from '../db';
 import { EINHEITEN, vorschlaege } from '../gewerke';
 import { fmtDate, fmtNumber, groupByDate, isoDate, parseDecimal, sumMaterial, uid } from '../lib/util';
 import { eigeneMaterialien, merge } from '../lib/history';
+import { useLock } from '../lib/useLock';
 import { Empty, Fab, Field, FormActions, Sheet } from '../components/ui';
 import { GewerkSelect } from '../components/GewerkSelect';
 
@@ -99,18 +100,21 @@ function MaterialForm({ project, draft, onClose }: { project: Project; draft: Dr
   // Beim Tippen filtern; eine exakt übernommene Bezeichnung nicht nochmal vorschlagen.
   const treffer = katalog.filter(([b]) => b.toLowerCase().includes(q) && b.toLowerCase() !== q);
 
-  async function save(addAnother: boolean) {
-    if (!valid) return;
-    const data = { datum, bezeichnung: bezeichnung.trim(), menge: m, einheit, artikelnr: artikelnr.trim(), gewerk, regie };
-    if (draft.id) await db.materials.update(draft.id, data);
-    else await db.materials.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
-    await touchProject(project.id);
-    if (addAnother) {
-      setBezeichnung('');
-      setMenge('');
-      setArtikelnr('');
-    } else onClose();
-  }
+  const lock = useLock();
+
+  const save = (addAnother: boolean) =>
+    lock(async () => {
+      if (!valid) return;
+      const data = { datum, bezeichnung: bezeichnung.trim(), menge: m, einheit, artikelnr: artikelnr.trim(), gewerk, regie };
+      if (draft.id) await db.materials.update(draft.id, data);
+      else await db.materials.add({ ...data, id: uid(), projectId: project.id, createdAt: Date.now() });
+      await touchProject(project.id);
+      if (addAnother) {
+        setBezeichnung('');
+        setMenge('');
+        setArtikelnr('');
+      } else onClose();
+    });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -172,11 +176,11 @@ function MaterialForm({ project, draft, onClose }: { project: Project; draft: Dr
             type="button"
             className="btn"
             disabled={!valid}
-            onClick={async () => {
+            onClick={() => lock(async () => {
               await db.materials.add({ datum: isoDate(), bezeichnung: bezeichnung.trim(), menge: m, einheit, artikelnr: artikelnr.trim(), gewerk, regie, id: uid(), projectId: project.id, createdAt: Date.now() });
               await touchProject(project.id);
               onClose();
-            }}
+            })}
           >
             Als neue Position für heute kopieren
           </button>
