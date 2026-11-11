@@ -1,0 +1,62 @@
+/* Protokoll-Engine. Nur Variablen aus styles.css, Klassenpräfix proto-. */
+
+.proto-form { display: flex; flex-direction: column; gap: 14px; }
+.proto-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.proto-section { display: flex; flex-direction: column; gap: 12px; }
+.proto-section > h2 { font-size: 17px; }
+.proto-unit { color: var(--muted); font-weight: 400; }
+.proto-input-unit { display: flex; align-items: center; gap: 8px; }
+.proto-input-unit > span { flex: none; color: var(--muted); min-width: 1.5em; }
+
+.proto-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Prüfpunkt */
+.proto-check { display: flex; flex-direction: column; gap: 8px; }
+.proto-check-name { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.proto-choice { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.proto-choice button {
+  min-height: 52px; padding: 8px 6px; border-radius: 12px; text-align: center; font-weight: 600; font-size: 16px;
+  background: var(--surface-2); border: 2px solid transparent;
+}
+.proto-choice.small { gap: 4px; }
+.proto-choice.small button { min-height: 44px; font-size: 14px; border-radius: 10px; padding: 4px; }
+.proto-choice button:active { filter: brightness(0.92); }
+.proto-choice button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.proto-choice button[aria-pressed='true'].is-mangel { border-color: var(--danger); background: var(--warn-bg); color: var(--danger); }
+
+/* Tabelle: Karten am Telefon */
+.proto-table { display: flex; flex-direction: column; gap: 10px; }
+.proto-table > h3 { font-size: 15px; }
+.proto-rowcard { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.proto-rowhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.proto-rowhead strong { font-size: 14px; color: var(--muted); }
+.proto-rowhead .link { color: var(--danger); }
+.proto-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
+.proto-cells .wide { grid-column: 1 / -1; }
+.proto-calc {
+  display: flex; align-items: center; min-height: 46px; padding: 11px 12px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.proto-sums { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+.proto-sums > div { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
+.proto-add { width: 100%; }
+
+/* Tabelle: echte Tabelle ab ~700 px Containerbreite */
+.proto-grid-wrap { overflow-x: auto; }
+.proto-grid { width: 100%; border-collapse: collapse; }
+.proto-grid th { text-align: left; font-size: 13px; color: var(--muted); padding: 6px 6px; white-space: nowrap; }
+.proto-grid td { padding: 4px 4px; vertical-align: top; min-width: 84px; }
+.proto-grid td.narrow { min-width: 0; width: 56px; }
+.proto-grid .proto-calc { justify-content: flex-end; }
+
+.proto-footer { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; }
+.proto-footer .chips { margin-bottom: 2px; }
+
+/* Liste */
+.proto-list .row-main strong { overflow-wrap: anywhere; }
+
+/* Druck */
+.proto-print h3 { font-size: 13.5px; margin: 12px 0 4px; }
+.proto-print table { margin-bottom: 8px; }
+.proto-print tr { break-inside: avoid; }
+.proto-print .mangel { font-weight: 700; }
