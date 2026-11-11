@@ -1,0 +1,1158 @@
+openapi: 3.1.0
+info:
+  title: Baustellenbuch API
+  version: 1.0.0-entwurf
+  summary: Entwurf des API-Vertrags für Sync, Anmeldung und Dateien.
+  description: |
+    ENTWURF zur Entscheidung. Es gibt keinen Server; der Vertrag beschreibt, was ein
+    optionales Backend anbieten würde (siehe docs/BACKEND.md). Die App bleibt local-first.
+
+    Grundregeln:
+    - Alle Datensatz-IDs sind vom Client erzeugte UUIDs.
+    - Zeitstempel sind Millisekunden seit 1970 (UTC), wie `updatedAt`/`createdAt` im Client.
+    - Konfliktregel (identisch mit `decide` in src/sync/merge.ts): je Datensatz gewinnt der
+      neuere Zeitstempel (`updatedAt ?? createdAt ?? 0`); ein Löschvermerk gewinnt bei
+      `deletedAt >= Zeitstempel`. Ausnahme im Sync-Pfad: bei Gleichstand gilt der Server-Stand.
+    - Fehler als Problem Details (RFC 9457, `application/problem+json`).
+    - Der Server setzt den Mandanten aus dem Token, nie aus Anfragedaten.
+servers:
+  - url: https://api.example.invalid
+    description: Platzhalter. Hosting und Domain sind offene Entscheidungen.
+tags:
+  - name: Auth
+  - name: Sync
+  - name: Dateien
+  - name: System
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/auth/code-request:
+    post:
+      tags: [Auth]
+      operationId: requestLoginCode
+      summary: Einmalcode per E-Mail anfordern (Magic Link und Code)
+      description: |
+        Antwortet immer mit 202, auch wenn die E-Mail-Adresse unbekannt ist (keine Auskunft über Konten).
+        Der Code ist kurz gültig und einmalig. Ein Einladungscode (`inviteCode`) legt bei erster
+        Anmeldung die Mitgliedschaft im Betrieb an.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                inviteCode:
+                  type: string
+                  maxLength: 64
+      responses:
+        '202':
+          description: Anfrage angenommen.
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+        '429':
+          $ref: '#/components/responses/ProblemTooManyRequests'
+
+  /v1/auth/code-verify:
+    post:
+      tags: [Auth]
+      operationId: verifyLoginCode
+      summary: Einmalcode einlösen und Sitzung eröffnen
+      description: |
+        Liefert ein kurzlebiges Zugriffstoken im Body. Das Refresh-Token wird als
+        `HttpOnly; Secure; SameSite=Strict`-Cookie gesetzt und ist für JavaScript nicht lesbar.
+        Das Zugriffstoken nur im Arbeitsspeicher halten, nicht in localStorage oder IndexedDB.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, deviceId]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                code:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+                deviceId:
+                  $ref: '#/components/schemas/Uuid'
+                deviceName:
+                  type: string
+                  maxLength: 80
+                tenantId:
+                  $ref: '#/components/schemas/Uuid'
+                  description: Nötig, wenn der Benutzer in mehreren Betrieben Mitglied ist.
+      responses:
+        '200':
+          description: Angemeldet.
+          headers:
+            Set-Cookie:
+              description: Refresh-Token (HttpOnly, Secure, SameSite=Strict).
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '429':
+          $ref: '#/components/responses/ProblemTooManyRequests'
+
+  /v1/auth/passkey/options:
+    post:
+      tags: [Auth]
+      operationId: passkeyOptions
+      summary: (Optional) WebAuthn-Optionen für Passkey-Anmeldung oder -Registrierung holen
+      description: Optionale Erweiterung. Der Inhalt folgt der WebAuthn-Spezifikation und wird hier nicht dupliziert.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose]
+              properties:
+                purpose:
+                  type: string
+                  enum: [login, register]
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: WebAuthn-Optionen (PublicKeyCredentialRequestOptions oder -CreationOptions).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+
+  /v1/auth/passkey/verify:
+    post:
+      tags: [Auth]
+      operationId: passkeyVerify
+      summary: (Optional) Passkey-Antwort prüfen
+      description: Optionale Erweiterung; bei erfolgreicher Anmeldung wie `code-verify` (Session).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, deviceId, credential]
+              properties:
+                purpose:
+                  type: string
+                  enum: [login, register]
+                deviceId:
+                  $ref: '#/components/schemas/Uuid'
+                credential:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Angemeldet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshSession
+      summary: Zugriffstoken mit dem Refresh-Cookie erneuern
+      description: Das Refresh-Token rotiert bei jeder Erneuerung. Wiederverwendung eines alten Tokens sperrt die Sitzung.
+      security: []
+      responses:
+        '200':
+          description: Neues Zugriffstoken; neues Refresh-Cookie.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Gerät abmelden (Refresh-Token widerrufen)
+      description: Lokale Daten auf dem Gerät bleiben erhalten; nur der Abgleich endet.
+      responses:
+        '204':
+          description: Abgemeldet.
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+
+  /v1/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Angemeldeten Benutzer, Betrieb und Rolle lesen
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+
+  /v1/sync/push:
+    post:
+      tags: [Sync]
+      operationId: syncPush
+      summary: Lokale Änderungen senden
+      description: |
+        Bis zu 100 Änderungen je Aufruf. Jede Änderung wird einzeln nach der Konfliktregel entschieden.
+        Idempotent: Der Header `Idempotency-Key` und `batchId` im Body sind dieselbe UUID; der Server liefert
+        bei Wiederholung mindestens 24 Stunden dieselbe Antwort. Verlorene Konflikte sind kein Fehler,
+        sie stehen im Ergebnis je Änderung.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushRequest'
+      responses:
+        '200':
+          description: Ergebnis je Änderung.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushResponse'
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '413':
+          $ref: '#/components/responses/ProblemPayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/ProblemTooManyRequests'
+        '503':
+          $ref: '#/components/responses/ProblemUnavailable'
+
+  /v1/sync/pull:
+    get:
+      tags: [Sync]
+      operationId: syncPull
+      summary: Änderungen seit dem Cursor holen
+      description: |
+        Liefert Änderungen mit größerer Server-Nummer als der Cursor, in Reihenfolge, gefiltert nach den Rechten
+        der Rolle. Ohne `cursor` beginnt ein vollständiger Abgleich. Der Client speichert den neuen Cursor erst
+        nach erfolgreichem Einspielen der Seite. Ist der Cursor zu alt (Löschvermerke älter als 180 Tage entfernt)
+        oder haben sich die Rechte geändert, antwortet der Server mit 410 und dem Problemtyp `cursor-expired`.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+          description: Opaker Cursor aus der letzten Antwort.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        '200':
+          description: Eine Seite Änderungen.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullResponse'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '410':
+          description: Cursor abgelaufen. Offene lokale Änderungen senden, dann ohne Cursor neu abgleichen.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/ProblemTooManyRequests'
+        '503':
+          $ref: '#/components/responses/ProblemUnavailable'
+
+  /v1/files/upload-urls:
+    post:
+      tags: [Dateien]
+      operationId: requestUpload
+      summary: Signierte Upload-URL(s) für einen Blob holen oder Upload fortsetzen
+      description: |
+        Idempotent je `blobId`. Legt die Blob-Metadaten mit Status `pending` an. Bis 8 MB: eine URL (`single`);
+        größer: Teile à 5 MB (`multipart`). Die URLs sind kurzlebig (siehe `expiresAt`) und nur für den
+        Objektschlüssel des eigenen Betriebs gültig. Bei Wiederholung nach Abbruch enthält die Antwort bei
+        `multipart` die bereits vollständig hochgeladenen Teile, so dass nur fehlende Teile nachgeladen werden.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadRequest'
+      responses:
+        '200':
+          description: Upload-Anweisung.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadInstruction'
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '403':
+          $ref: '#/components/responses/ProblemForbidden'
+        '413':
+          $ref: '#/components/responses/ProblemPayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/ProblemTooManyRequests'
+
+  /v1/files/complete:
+    post:
+      tags: [Dateien]
+      operationId: completeUpload
+      summary: Upload abschließen
+      description: |
+        Der Server prüft Größe und SHA-256 und setzt den Blob auf `available`. Erst dann gilt er als gesichert.
+        Idempotent: Wiederholung bei bereits verfügbarem Blob liefert 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteRequest'
+      responses:
+        '200':
+          description: Blob verfügbar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobMeta'
+        '400':
+          $ref: '#/components/responses/ProblemBadRequest'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '403':
+          $ref: '#/components/responses/ProblemForbidden'
+        '409':
+          description: Teile fehlen oder Prüfsumme/Größe stimmen nicht; Upload erneut anstoßen.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /v1/files/download-url:
+    get:
+      tags: [Dateien]
+      operationId: getDownloadUrl
+      summary: Kurzlebige signierte Download-URL für einen Blob
+      description: Nur für Blobs, die die Rolle sehen darf (gleiche Rechte wie der zugehörige Datensatz).
+      parameters:
+        - name: blobId
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 80
+          description: Blob-ID; `id` oder `id:bg` (Skizzenhintergrund), URL-kodiert.
+      responses:
+        '200':
+          description: URL und Gültigkeit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadUrl'
+        '401':
+          $ref: '#/components/responses/ProblemUnauthorized'
+        '403':
+          $ref: '#/components/responses/ProblemForbidden'
+        '404':
+          $ref: '#/components/responses/ProblemNotFound'
+
+  /v1/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Zustand des Dienstes
+      description: Ohne Anmeldung, ohne interne Details. Für Überwachung und Deployment.
+      security: []
+      responses:
+        '200':
+          description: Dienst ist bereit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Dienst nicht bereit (z. B. Datenbank nicht erreichbar).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Kurzlebiges Zugriffstoken (z. B. 15 Minuten). Nur im Arbeitsspeicher halten.
+
+  responses:
+    ProblemBadRequest:
+      description: Ungültige Anfrage.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemUnauthorized:
+      description: Nicht angemeldet oder Token abgelaufen.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemForbidden:
+      description: Rolle erlaubt die Aktion nicht.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemNotFound:
+      description: Nicht gefunden (oder für diese Rolle nicht sichtbar).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemPayloadTooLarge:
+      description: Anfrage oder Datei zu groß.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemTooManyRequests:
+      description: Zu viele Anfragen; `Retry-After` beachten.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 0
+          description: Sekunden bis zum nächsten Versuch.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemUnavailable:
+      description: Dienst vorübergehend nicht verfügbar.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 0
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+
+    Millis:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Millisekunden seit 1970-01-01 UTC.
+
+    Base64Bytes:
+      type: string
+      contentEncoding: base64
+      description: Binärdaten, Base64-kodiert (kleine Daten wie Vorschaubilder und Unterschriften).
+
+    Role:
+      type: string
+      enum: [inhaber, vorarbeiter, mitarbeiter]
+
+    Problem:
+      type: object
+      description: Problem Details nach RFC 9457.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          description: Kurzer Typ, z. B. `cursor-expired`, `validation`, `forbidden`, `rate-limited`.
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+          description: Kein Inhalt aus Datensätzen und keine personenbezogenen Daten.
+        requestId:
+          type: string
+      additionalProperties: true
+
+    Session:
+      type: object
+      required: [accessToken, expiresAt, user, tenant, role]
+      properties:
+        accessToken:
+          type: string
+        expiresAt:
+          $ref: '#/components/schemas/Millis'
+        user:
+          $ref: '#/components/schemas/User'
+        tenant:
+          $ref: '#/components/schemas/Tenant'
+        role:
+          $ref: '#/components/schemas/Role'
+
+    Me:
+      type: object
+      required: [user, tenant, role, serverTime]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        tenant:
+          $ref: '#/components/schemas/Tenant'
+        role:
+          $ref: '#/components/schemas/Role'
+        serverTime:
+          $ref: '#/components/schemas/Millis'
+
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+
+    Tenant:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        version:
+          type: string
+          description: Version des Dienstes (z. B. Build-Kennung).
+        apiVersions:
+          type: array
+          items:
+            type: string
+          examples:
+            - ['v1']
+
+    # --- Datenmodell (passend zu src/db.ts) ---
+    # Zusätzlich zu den Client-Feldern: `updatedAt` ist für jede synchronisierte Tabelle Pflicht.
+    # Server-seitig gesetzt (readOnly): Benutzerzuordnung bei Stunden.
+
+    Project:
+      type: object
+      required: [id, name, kunde, adresse, auftragsnr, gewerke, status, beschreibung, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        kunde:
+          type: string
+        adresse:
+          type: string
+        auftragsnr:
+          type: string
+        gewerke:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [aktiv, abgeschlossen]
+        beschreibung:
+          type: string
+        ansprechpartner:
+          type: string
+        abgerechnet:
+          type: boolean
+        telefon:
+          type: string
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    TimeEntry:
+      type: object
+      required: [id, projectId, datum, mitarbeiter, von, bis, pauseMin, minuten, taetigkeit, gewerk, regie, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        datum:
+          type: string
+          format: date
+          description: YYYY-MM-DD
+        mitarbeiter:
+          type: string
+          description: Anzeigename (freier Text im Client).
+        userId:
+          $ref: '#/components/schemas/Uuid'
+          readOnly: true
+          description: Vom Server aus dem Token gesetzt; Grundlage der Rechte (wessen Stunden).
+        von:
+          type: string
+          description: HH:MM oder leer.
+        bis:
+          type: string
+          description: HH:MM oder leer.
+        pauseMin:
+          type: integer
+          minimum: 0
+        minuten:
+          type: integer
+          minimum: 0
+          description: Netto-Arbeitszeit.
+        taetigkeit:
+          type: string
+        gewerk:
+          type: string
+        regie:
+          type: boolean
+        fahrtKm:
+          type: number
+          minimum: 0
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    MaterialEntry:
+      type: object
+      required: [id, projectId, datum, bezeichnung, menge, einheit, artikelnr, gewerk, regie, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        datum:
+          type: string
+          format: date
+        bezeichnung:
+          type: string
+        menge:
+          type: number
+        einheit:
+          type: string
+        artikelnr:
+          type: string
+        gewerk:
+          type: string
+        regie:
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    Note:
+      type: object
+      required: [id, projectId, datum, titel, text, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        datum:
+          type: string
+          format: date
+        titel:
+          type: string
+        text:
+          type: string
+        todo:
+          type: boolean
+        done:
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    Signature:
+      type: object
+      required: [id, projectId, name, von, bis, data, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        von:
+          type: string
+          format: date
+        bis:
+          type: string
+          format: date
+        nurRegie:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Base64Bytes'
+          description: PNG der Unterschrift, höchstens 512 KB (Annahme, vor Stufe 1 an echten Daten prüfen).
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    Photo:
+      type: object
+      required: [id, projectId, datum, caption, thumb, createdAt, updatedAt]
+      description: Metadaten und Vorschaubild. Das Vollbild ist ein Blob mit derselben id (siehe `BlobMeta`).
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        datum:
+          type: string
+          format: date
+        caption:
+          type: string
+        thumb:
+          $ref: '#/components/schemas/Base64Bytes'
+          description: Vorschaubild, höchstens 128 KB (Annahme).
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    Stroke:
+      type: object
+      required: [tool, color, width, points]
+      properties:
+        tool:
+          type: string
+          enum: [pen, line, rect, text, eraser]
+        color:
+          type: string
+        width:
+          type: number
+        points:
+          type: array
+          items:
+            type: array
+            prefixItems:
+              - type: number
+              - type: number
+            minItems: 2
+            maxItems: 2
+        text:
+          type: string
+
+    Sketch:
+      type: object
+      required: [id, projectId, titel, width, height, strokes, hasBackground, createdAt, updatedAt]
+      description: Vektordaten. Das gerenderte Bild ist ein Blob mit derselben id, ein Hintergrundfoto der Blob `id:bg`.
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        titel:
+          type: string
+        width:
+          type: number
+        height:
+          type: number
+        strokes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Stroke'
+        hasBackground:
+          type: boolean
+        thumb:
+          oneOf:
+            - $ref: '#/components/schemas/Base64Bytes'
+            - type: 'null'
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    Protocol:
+      type: object
+      required: [id, projectId, templateId, templateVersion, titel, datum, values, abgeschlossen, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        templateId:
+          type: string
+        templateVersion:
+          type: integer
+          minimum: 1
+        titel:
+          type: string
+        datum:
+          type: string
+          format: date
+        values:
+          type: object
+          description: Werte je Feld-id der Vorlage (Typ `FieldValue` in src/protocols/types.ts). Der Server speichert sie unverändert.
+          additionalProperties: true
+        abgeschlossen:
+          type: boolean
+        createdAt:
+          $ref: '#/components/schemas/Millis'
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    BlobMeta:
+      type: object
+      required: [id, projectId, mime, size, status, updatedAt]
+      description: |
+        Metadaten eines Blobs. Die Daten selbst reisen nie im Sync, sondern über Upload-/Download-URLs.
+        `id` ist die Blob-ID (`id` oder `id:bg`).
+      properties:
+        id:
+          type: string
+          maxLength: 80
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        mime:
+          type: string
+          examples:
+            - image/jpeg
+        size:
+          type: integer
+          minimum: 0
+          description: Größe in Bytes.
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        status:
+          type: string
+          enum: [pending, available]
+          readOnly: true
+        updatedAt:
+          $ref: '#/components/schemas/Millis'
+
+    # --- Sync ---
+
+    SyncTable:
+      type: string
+      enum: [projects, times, materials, notes, photos, sketches, blobs, signatures, protocols]
+
+    SyncRecord:
+      description: Voller Datensatz einer synchronisierten Tabelle; passend zu `SyncChange.table`.
+      oneOf:
+        - $ref: '#/components/schemas/Project'
+        - $ref: '#/components/schemas/TimeEntry'
+        - $ref: '#/components/schemas/MaterialEntry'
+        - $ref: '#/components/schemas/Note'
+        - $ref: '#/components/schemas/Photo'
+        - $ref: '#/components/schemas/Sketch'
+        - $ref: '#/components/schemas/BlobMeta'
+        - $ref: '#/components/schemas/Signature'
+        - $ref: '#/components/schemas/Protocol'
+
+    SyncChange:
+      type: object
+      required: [table, id, op]
+      description: |
+        Eine Änderung. `upsert` trägt den vollen Datensatz in `record` (dessen `updatedAt` zählt).
+        `delete` trägt `deletedAt` (Löschvermerk); `record` entfällt.
+      properties:
+        table:
+          $ref: '#/components/schemas/SyncTable'
+        id:
+          type: string
+          maxLength: 80
+        op:
+          type: string
+          enum: [upsert, delete]
+        record:
+          $ref: '#/components/schemas/SyncRecord'
+        deletedAt:
+          $ref: '#/components/schemas/Millis'
+      allOf:
+        - if:
+            properties:
+              op:
+                const: upsert
+          then:
+            required: [record]
+        - if:
+            properties:
+              op:
+                const: delete
+          then:
+            required: [deletedAt]
+
+    PushRequest:
+      type: object
+      required: [deviceId, batchId, changes]
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/Uuid'
+        batchId:
+          $ref: '#/components/schemas/Uuid'
+          description: Gleich dem Header `Idempotency-Key`.
+        clientTime:
+          $ref: '#/components/schemas/Millis'
+          description: Geräteuhr beim Senden; der Server meldet den Versatz zurück.
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/SyncChange'
+
+    PushResult:
+      type: object
+      required: [table, id, status]
+      properties:
+        table:
+          $ref: '#/components/schemas/SyncTable'
+        id:
+          type: string
+        status:
+          type: string
+          enum: [applied, ignored_older, ignored_deleted, rejected]
+          description: |
+            `applied`: übernommen. `ignored_older`: Server hat gleichen oder neueren Stand (bei Gleichstand gilt der Server-Stand).
+            `ignored_deleted`: ein neuerer Löschvermerk gewinnt. `rejected`: Recht oder Validierung fehlgeschlagen.
+        serverRecord:
+          $ref: '#/components/schemas/SyncRecord'
+          description: Maßgeblicher Server-Stand bei `ignored_older`; der Client übernimmt ihn.
+        serverDeletedAt:
+          $ref: '#/components/schemas/Millis'
+          description: Löschzeitpunkt bei `ignored_deleted`.
+        reason:
+          type: string
+          enum: [forbidden, invalid, too_large, unknown_project]
+          description: Nur bei `rejected`. Kein Inhalt aus Datensätzen.
+
+    PushResponse:
+      type: object
+      required: [results, cursor, serverTime]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PushResult'
+        cursor:
+          type: string
+          description: Cursor nach diesem Push. Der Client holt danach per Pull weiter.
+        serverTime:
+          $ref: '#/components/schemas/Millis'
+        clockSkewMs:
+          type: integer
+          format: int64
+          description: Geräteuhr minus Serverzeit; ab etwa 5 Minuten warnt die App. Liegen `updatedAt`-Werte weiter in der Zukunft, setzt der Server sie auf die Serverzeit.
+
+    PulledChange:
+      type: object
+      required: [table, id, op, seq]
+      properties:
+        table:
+          $ref: '#/components/schemas/SyncTable'
+        id:
+          type: string
+        op:
+          type: string
+          enum: [upsert, delete]
+        seq:
+          type: integer
+          format: int64
+          description: Server-Nummer (je Betrieb monoton).
+        record:
+          $ref: '#/components/schemas/SyncRecord'
+        deletedAt:
+          $ref: '#/components/schemas/Millis'
+
+    PullResponse:
+      type: object
+      required: [changes, cursor, hasMore, serverTime]
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/PulledChange'
+        cursor:
+          type: string
+          description: Nächster Cursor; erst nach erfolgreichem Einspielen speichern.
+        hasMore:
+          type: boolean
+        serverTime:
+          $ref: '#/components/schemas/Millis'
+
+    # --- Dateien ---
+
+    UploadRequest:
+      type: object
+      required: [blobId, projectId, mime, size, sha256]
+      additionalProperties: false
+      properties:
+        blobId:
+          type: string
+          maxLength: 80
+        projectId:
+          $ref: '#/components/schemas/Uuid'
+        mime:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size:
+          type: integer
+          minimum: 1
+          maximum: 52428800
+          description: Bytes; Höchstgrenze 50 MB (Annahme).
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+
+    UploadPart:
+      type: object
+      required: [partNumber, url, size]
+      properties:
+        partNumber:
+          type: integer
+          minimum: 1
+        url:
+          type: string
+          format: uri
+        size:
+          type: integer
+          minimum: 1
+        done:
+          type: boolean
+          description: Teil ist schon vollständig hochgeladen; nicht erneut senden.
+        etag:
+          type: string
+          description: Prüfmarke des fertigen Teils (bei `done`).
+
+    UploadInstruction:
+      type: object
+      required: [blobId, mode, expiresAt, status]
+      properties:
+        blobId:
+          type: string
+        mode:
+          type: string
+          enum: [single, multipart, already_available]
+          description: Bei `already_available` ist nichts hochzuladen.
+        status:
+          type: string
+          enum: [pending, available]
+        expiresAt:
+          $ref: '#/components/schemas/Millis'
+          description: Ablauf der URL(s); danach neu anfordern.
+        url:
+          type: string
+          format: uri
+          description: Bei `single`. Der Client sendet die Datei mit HTTP PUT.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Header, die der Client beim PUT mitsenden muss.
+        parts:
+          type: array
+          description: Bei `multipart`.
+          items:
+            $ref: '#/components/schemas/UploadPart'
+
+    CompleteRequest:
+      type: object
+      required: [blobId]
+      additionalProperties: false
+      properties:
+        blobId:
+          type: string
+          maxLength: 80
+        parts:
+          type: array
+          description: "Bei `multipart`: Teilnummer und Prüfmarke je Teil."
+          items:
+            type: object
+            required: [partNumber, etag]
+            properties:
+              partNumber:
+                type: integer
+                minimum: 1
+              etag:
+                type: string
+
+    DownloadUrl:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          $ref: '#/components/schemas/Millis'
