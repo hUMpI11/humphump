@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { limitTimestamp, sanitize, validateProfil, validateRecord, validateTombstone } from './validate';
 
 const NOW = 1_700_000_000_000;
-const DAY = 24 * 3600 * 1000;
+const TOLERANZ = 5 * 60 * 1000;
 
 const projekt = (o: Record<string, unknown> = {}) => ({
   id: 'p1', name: 'Bad Huber', kunde: '', adresse: '', auftragsnr: '', gewerke: ['Sanitär'], status: 'aktiv', beschreibung: '', createdAt: 5, updatedAt: 6, ...o,
@@ -80,12 +80,36 @@ describe('validateRecord: ungültige Zeilen', () => {
     expect(gueltig('protocols', prot(null))).toBeNull();
     expect(gueltig('protocols', prot({ a: 'x'.repeat(3 * 1024 * 1024) }))).toBeNull();
   });
+  it('Protokollwerte: gültige Feldtypen bleiben erhalten', () => {
+    const prot = (values: unknown) => ({ id: 'q', projectId: 'p1', templateId: 't', templateVersion: 1, titel: '', datum: '2026-05-04', values, abgeschlossen: false, createdAt: 1 });
+    const values = {
+      t: 'Text', n: 2.5, leer: null, c: { status: 'mangel', bemerkung: 'Riss' }, c2: { status: '', bemerkung: '' },
+      tab: [{ _id: 'r1', a: 'x', b: 1, c: null }, { _id: 'r2' }], keine: [],
+    };
+    expect(gueltig('protocols', prot(values))!.rec.values).toEqual(values);
+  });
+  it('Protokollwerte: null-Zeile, Objekt als Zelle, falscher Status, Unsinn werden verworfen', () => {
+    const prot = (values: unknown) => ({ id: 'q', projectId: 'p1', templateId: 't', templateVersion: 1, titel: '', datum: '2026-05-04', values, abgeschlossen: false, createdAt: 1 });
+    expect(gueltig('protocols', prot({ tab: [null] }))).toBeNull();
+    expect(gueltig('protocols', prot({ tab: [[1]] }))).toBeNull();
+    expect(gueltig('protocols', prot({ tab: [{ _id: 'r', a: { x: 1 } }] }))).toBeNull();
+    expect(gueltig('protocols', prot({ tab: [{ _id: 'r', a: true }] }))).toBeNull();
+    expect(gueltig('protocols', prot({ tab: [{ a: 'ohne _id' }] }))).toBeNull();
+    expect(gueltig('protocols', prot({ tab: new Array(5001).fill({ _id: 'r' }) }))).toBeNull();
+    expect(gueltig('protocols', prot({ c: { status: 'kaputt', bemerkung: '' } }))).toBeNull();
+    expect(gueltig('protocols', prot({ c: { status: 'ok' } }))).toBeNull();
+    expect(gueltig('protocols', prot({ c: { status: 'ok', bemerkung: 5 } }))).toBeNull();
+    expect(gueltig('protocols', prot({ x: true }))).toBeNull();
+    expect(gueltig('protocols', prot({ x: Infinity }))).toBeNull();
+    expect(gueltig('protocols', prot({ x: 'y'.repeat(50_001) }))).toBeNull();
+  });
 });
 
 describe('Zeitstempel', () => {
   it('limitTimestamp: gültig, Zukunft, ungültig', () => {
-    expect(limitTimestamp(NOW + DAY - 1, NOW)).toEqual({ value: NOW + DAY - 1, korrigiert: false });
-    expect(limitTimestamp(NOW + DAY + 1, NOW)).toEqual({ value: NOW, korrigiert: true });
+    expect(limitTimestamp(NOW + TOLERANZ, NOW)).toEqual({ value: NOW + TOLERANZ, korrigiert: false });
+    expect(limitTimestamp(NOW + TOLERANZ + 1, NOW)).toEqual({ value: NOW, korrigiert: true });
+    expect(limitTimestamp(NOW + 60 * 60 * 1000, NOW)).toEqual({ value: NOW, korrigiert: true });
     expect(limitTimestamp(9e15, NOW)).toEqual({ value: NOW, korrigiert: true });
     expect(limitTimestamp(-1, NOW).value).toBeUndefined();
     expect(limitTimestamp(Infinity, NOW).value).toBeUndefined();

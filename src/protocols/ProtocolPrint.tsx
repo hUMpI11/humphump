@@ -1,7 +1,7 @@
 import type { Protocol } from '../db';
 import { fmtDate, fmtNumber } from '../lib/util';
 import type { CellValue, CheckResult, Field, Row, TableColumn, TableField, Template } from './types';
-import { tableSummary } from './calc';
+import { cleanRows, cleanValues, tableSummary } from './calc';
 import './protocols.css';
 
 const STATUS: Record<string, string> = { ok: 'i. O.', mangel: 'Mangel', na: 'n. z.', '': 'offen' };
@@ -25,8 +25,9 @@ function cellText(col: TableColumn, v: CellValue | undefined): string {
   return String(v);
 }
 
-function PrintTable({ field, rows, hideTitle }: { field: TableField; rows: Row[]; hideTitle?: boolean }) {
+function PrintTable({ field, rows: rohRows, hideTitle }: { field: TableField; rows: unknown; hideTitle?: boolean }) {
   const cols = field.columns;
+  const rows: Row[] = cleanRows(rohRows);
   const shown = rows.filter((r) => cols.some((c) => !isEmpty(r[c.id])));
   if (shown.length === 0) return null;
   const sums = tableSummary(field, shown);
@@ -85,7 +86,7 @@ function PrintTable({ field, rows, hideTitle }: { field: TableField; rows: Row[]
 
 /** Druckansicht eines Protokolls innerhalb des Berichts (<section> mit <h2>, Tabellen wie im restlichen Bericht). */
 export function ProtocolPrint({ template, protocol }: { template: Template; protocol: Protocol }) {
-  const values = protocol.values ?? {};
+  const values = cleanValues(protocol.values);
   const fieldsOf = (fields: Field[]) => ({
     facts: fields.filter((f) => f.type !== 'check' && f.type !== 'table'),
     checks: fields.filter((f) => f.type === 'check'),
@@ -114,7 +115,7 @@ export function ProtocolPrint({ template, protocol }: { template: Template; prot
         });
         const hasTables = tables.some((t) => {
           const rows = values[t.id];
-          return Array.isArray(rows) && rows.some((r) => t.columns.some((c) => !isEmpty(r[c.id])));
+          return Array.isArray(rows) && cleanRows(rows).some((r) => t.columns.some((c) => !isEmpty(r[c.id])));
         });
         if (factRows.length === 0 && checks.length === 0 && !hasTables) return null;
         return (
@@ -141,13 +142,14 @@ export function ProtocolPrint({ template, protocol }: { template: Template; prot
                 </thead>
                 <tbody>
                   {checks.map((f) => {
-                    const v = values[f.id] as CheckResult | undefined;
-                    const status = v && typeof v === 'object' && 'status' in v ? v.status : '';
+                    const raw = values[f.id];
+                    const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Partial<CheckResult>) : undefined;
+                    const status = typeof v?.status === 'string' ? v.status : '';
                     return (
                       <tr key={f.id}>
                         <td>{f.label}</td>
                         <td className={status === 'mangel' ? 'mangel nw' : 'nw'}>{STATUS[status] ?? status}</td>
-                        <td className="pre">{v && typeof v === 'object' && 'bemerkung' in v ? v.bemerkung : ''}</td>
+                        <td className="pre">{typeof v?.bemerkung === 'string' ? v.bemerkung : ''}</td>
                       </tr>
                     );
                   })}

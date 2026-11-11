@@ -10,7 +10,9 @@ interface Pending {
   deletedAt: number;
 }
 
-let suspended = 0;
+// Nur die Einspiel-Transaktion ist ausgenommen. Schreibvorgänge der Oberfläche laufen in eigenen Transaktionen und
+// werden weiter gestempelt, auch wenn sie während des Einspielens stattfinden.
+const untracked = new WeakSet<Transaction>();
 
 /**
  * Hängt Dexie-Hooks an alle SYNC_TABLES:
@@ -38,20 +40,20 @@ export function installChangeTracking(db: Dexie): void {
   for (const name of TRACKED) {
     const table = db.table(name);
 
-    table.hook('creating', (_key, obj) => {
-      if (suspended) return;
+    table.hook('creating', (_key, obj, trans) => {
+      if (untracked.has(trans)) return;
       const rec = obj as Record<string, unknown>;
       if (rec.updatedAt === undefined) rec.updatedAt = Date.now();
     });
 
-    table.hook('updating', (mods) => {
-      if (suspended) return;
+    table.hook('updating', (mods, _key, _obj, trans) => {
+      if (untracked.has(trans)) return;
       if ('updatedAt' in (mods as object)) return;
       return { updatedAt: Date.now() };
     });
 
     table.hook('deleting', (key, _obj, trans) => {
-      if (suspended) return;
+      if (untracked.has(trans)) return;
       const id = String(key);
       const entry: Pending = { key: `${name}:${id}`, table: name, id, deletedAt: Date.now() };
       let list = pendingByTrans.get(trans);
@@ -66,12 +68,13 @@ export function installChangeTracking(db: Dexie): void {
   }
 }
 
-/** Führt fn aus, ohne dass die Hooks stempeln oder Löschvermerke schreiben (für das Einspielen/Zusammenführen). */
-export async function withoutTracking<T>(fn: () => Promise<T>): Promise<T> {
-  suspended++;
-  try {
-    return await fn();
-  } finally {
-    suspended--;
-  }
+/**
+ * Nimmt die aktuelle Transaktion von der Änderungsverfolgung aus (für das Einspielen/Zusammenführen: Zeitstempel
+ * bleiben erhalten, keine Löschvermerke). Muss innerhalb des Transaktions-Callbacks vor dem ersten Schreiben
+ * aufgerufen werden. Andere Transaktionen, auch gleichzeitig laufende, bleiben verfolgt.
+ */
+export function untrackCurrentTransaction(): void {
+  const trans = Dexie.currentTransaction;
+  if (!trans) throw new Error('untrackCurrentTransaction außerhalb einer Transaktion aufgerufen');
+  untracked.add(trans);
 }

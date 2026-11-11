@@ -11,15 +11,20 @@ export function toCsv(rows: (string | number | boolean)[][]): string {
   return '﻿' + rows.map((r) => r.map(cell).join(';')).join('\r\n') + '\r\n';
 }
 
-/** Teilen-Dialog (iOS) wenn möglich, sonst klassischer Download. */
-export async function shareOrDownload(filename: string, blob: Blob) {
+export type ShareResult = 'geteilt' | 'heruntergeladen' | 'abgebrochen';
+
+/**
+ * Teilen-Dialog (iOS) wenn möglich, sonst klassischer Download. 'abgebrochen' heißt: Die Datei wurde nicht
+ * weitergegeben (Nutzer hat den Teilen-Dialog geschlossen) – wer eine Sicherung braucht, darf sie dann nicht als erstellt werten.
+ */
+export async function shareOrDownload(filename: string, blob: Blob): Promise<ShareResult> {
   const file = new File([blob], filename, { type: blob.type });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
-      return;
+      return 'geteilt';
     } catch (e) {
-      if ((e as DOMException).name === 'AbortError') return; // Nutzer hat abgebrochen
+      if ((e as DOMException).name === 'AbortError') return 'abgebrochen';
     }
   }
   const url = URL.createObjectURL(blob);
@@ -30,6 +35,7 @@ export async function shareOrDownload(filename: string, blob: Blob) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return 'heruntergeladen';
 }
 
 function bufToB64(buf: ArrayBuffer): string {
@@ -94,10 +100,13 @@ const TOMBSTONE_MAX_AGE = 180 * 24 * 3600 * 1000;
 export interface RestorePlan {
   /** Was das Einspielen bewirken würde – ohne etwas zu verändern. */
   vorschau: MergeResult;
+  /** Hinweis, wenn das Erstellungsdatum der Sicherung unplausibel ist (Zukunft, ungültig, vor 2024). */
+  warnung?: string;
   /** Führt das Zusammenführen aus. Schreibt entweder alles oder nichts. */
   anwenden(): Promise<MergeResult>;
 }
 
+const FRUEHESTES_ERSTELLDATUM = Date.UTC(2024, 0, 1);
 const MAX_BACKUP_BYTES = 500 * 1024 * 1024;
 
 /**
@@ -125,19 +134,28 @@ export async function planRestore(file: Blob): Promise<RestorePlan> {
     const rows = (tabellen as Record<string, unknown>)[name];
     if (Array.isArray(rows)) tables[name] = rows.filter((r): r is Json => !!r && typeof r === 'object' && !Array.isArray(r));
   }
-  // Nichts in der Datei kann jünger sein als die Datei selbst. Zukunfts-Zeitstempel werden deshalb auf den
-  // Erstellzeitpunkt der Sicherung begrenzt (nicht auf „jetzt“) – sonst würde dieselbe Datei bei jedem
-  // erneuten Einspielen wieder gegen inzwischen geänderte lokale Daten gewinnen.
+  // Nichts in der Datei kann jünger sein als die Datei selbst. Zeitstempel, die mehr als 5 Minuten (Uhren-Toleranz,
+  // MAX_FUTURE_MS) nach dem Erstellzeitpunkt liegen, werden deshalb auf diesen begrenzt (nicht auf „jetzt“) – sonst
+  // würde dieselbe Datei bei jedem erneuten Einspielen wieder gegen inzwischen geänderte lokale Daten gewinnen.
+  // Ist das Erstellungsdatum selbst unplausibel, gilt „jetzt“ als Bezug und der Nutzer wird gewarnt.
   const erstellt = typeof json.erstellt === 'string' ? Date.parse(json.erstellt) : NaN;
-  const bezug = Number.isFinite(erstellt) && erstellt > 0 ? Math.min(erstellt, Date.now()) : Date.now();
+  const jetzt = Date.now();
+  const unplausibel = !Number.isFinite(erstellt) || erstellt > jetzt || erstellt < FRUEHESTES_ERSTELLDATUM;
+  const bezug = unplausibel ? jetzt : erstellt;
   const prepared = prepareMerge(tables, { decode: decodeRecord, now: bezug });
   const vorschau = await runPrepared(prepared, { dryRun: true });
   return {
     vorschau,
+    warnung: unplausibel ? 'Sicherungsdatum unplausibel: Das Erstellungsdatum der Datei fehlt, liegt in der Zukunft oder vor 2024. Prüfe die Uhr der Geräte und ob dies die richtige Datei ist.' : undefined,
     async anwenden() {
       const result = await runPrepared(prepared);
       // Alte Löschvermerke aufräumen: nach so langer Zeit ist ein Gerät mit altem Stand nicht mehr zu erwarten.
-      await db.tombstones.where('key').above('').filter((t) => t.deletedAt < Date.now() - TOMBSTONE_MAX_AGE).delete();
+      // Eigenes try/catch: Das Zusammenführen ist hier schon geschrieben und darf nicht als gescheitert gemeldet werden.
+      try {
+        await db.tombstones.where('key').above('').filter((t) => t.deletedAt < Date.now() - TOMBSTONE_MAX_AGE).delete();
+      } catch {
+        /* Aufräumen holt der nächste Einspielvorgang nach */
+      }
       return result;
     },
   };

@@ -13,8 +13,8 @@ type Rec = Record<string, unknown>;
 export const FORBIDDEN_KEYS = ['__proto__', 'constructor', 'prototype'] as const;
 const isForbidden = (k: string) => (FORBIDDEN_KEYS as readonly string[]).includes(k);
 
-/** Zeitstempel aus der Datei, die weiter als das in der Zukunft liegen, gelten als falsch gestellte Uhr. */
-export const MAX_FUTURE_MS = 24 * 3600 * 1000;
+/** Zeitstempel aus der Datei, die weiter als das in der Zukunft liegen, gelten als falsch gestellte Uhr (Bezug: Erstellzeitpunkt der Sicherung). */
+export const MAX_FUTURE_MS = 5 * 60 * 1000;
 
 /** Tabellen mit Datensätzen, für die Löschvermerke zulässig sind. */
 export const VALID_TOMBSTONE_TABLES = ['projects', 'times', 'materials', 'notes', 'photos', 'sketches', 'blobs', 'signatures', 'protocols'];
@@ -48,7 +48,7 @@ export function sanitize(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/** Ein Zeitstempel: nur endliche, nicht negative Zahlen; mehr als 24 h in der Zukunft wird auf „jetzt“ begrenzt. */
+/** Ein Zeitstempel: nur endliche, nicht negative Zahlen; mehr als 5 Minuten in der Zukunft wird auf „jetzt“ begrenzt. */
 export function limitTimestamp(v: unknown, now: number): { value: number | undefined; korrigiert: boolean } {
   if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return { value: undefined, korrigiert: false };
   if (v > now + MAX_FUTURE_MS) return { value: now, korrigiert: true };
@@ -98,11 +98,56 @@ function strokes(v: unknown): unknown {
   return out;
 }
 
+const MAX_ROWS = 5000;
+const CHECK_STATUS = ['ok', 'mangel', 'na', ''];
+
+/** Eine Tabellenzelle: Text, endliche Zahl oder null. Alles andere (Objekt, Liste, Boolean …) ist ungültig. */
+function zelle(v: unknown): boolean {
+  return v === null || (typeof v === 'string' && v.length <= MAX_TEXT) || (typeof v === 'number' && Number.isFinite(v));
+}
+
+/** Ein Feldwert eines Protokolls (siehe FieldValue in protocols/types.ts); liefert eine saubere Kopie oder INVALID. */
+function feldWert(v: unknown): unknown {
+  if (v === null) return null;
+  if (typeof v === 'string') return v.length <= MAX_TEXT ? v : INVALID;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : INVALID;
+  if (Array.isArray(v)) {
+    if (v.length > MAX_ROWS) return INVALID;
+    const rows: Rec[] = [];
+    for (const r of v) {
+      if (!r || typeof r !== 'object' || Array.isArray(r) || r instanceof ArrayBuffer) return INVALID;
+      const row = r as Rec;
+      if (typeof row._id !== 'string' || row._id.length > MAX_ID) return INVALID;
+      const clean: Rec = {};
+      for (const [k, c] of Object.entries(row)) {
+        if (!zelle(c)) return INVALID;
+        clean[k] = c;
+      }
+      rows.push(clean);
+    }
+    return rows;
+  }
+  if (v && typeof v === 'object' && !(v instanceof ArrayBuffer)) {
+    const c = v as Rec;
+    if (typeof c.status !== 'string' || !CHECK_STATUS.includes(c.status)) return INVALID;
+    if (typeof c.bemerkung !== 'string' || c.bemerkung.length > MAX_TEXT) return INVALID;
+    return { status: c.status, bemerkung: c.bemerkung };
+  }
+  return INVALID;
+}
+
 function protokollWerte(v: unknown): unknown {
   if (!v || typeof v !== 'object' || Array.isArray(v) || v instanceof ArrayBuffer) return INVALID;
-  if (Object.keys(v as Rec).length > 2000) return INVALID;
+  const entries = Object.entries(v as Rec);
+  if (entries.length > 2000) return INVALID;
+  const out: Rec = {};
+  for (const [k, f] of entries) {
+    const w = feldWert(f);
+    if (w === INVALID) return INVALID;
+    out[k] = w;
+  }
   try {
-    return JSON.stringify(v).length <= MAX_VALUES_JSON ? v : INVALID;
+    return JSON.stringify(out).length <= MAX_VALUES_JSON ? out : INVALID;
   } catch {
     return INVALID;
   }

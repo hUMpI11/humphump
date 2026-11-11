@@ -35,13 +35,18 @@ export default function Settings() {
     void setSetting('profil', next);
   };
 
-  /** Liefert true, wenn die Sicherung erstellt wurde (oder der Teilen-Dialog durchlaufen ist). */
+  /** Liefert true nur, wenn die Sicherung wirklich weitergegeben wurde (geteilt oder heruntergeladen); bei Abbruch false. */
   async function backup(): Promise<boolean> {
     setBusy(true);
     setMsg('');
     try {
       const blob = await createBackup();
-      await shareOrDownload(`Baustellenbuch_Sicherung_${isoDate()}.json`, blob);
+      const ergebnis = await shareOrDownload(`Baustellenbuch_Sicherung_${isoDate()}.json`, blob);
+      if (ergebnis === 'abgebrochen') {
+        setMsg('Sicherung abgebrochen. Es wurde keine Sicherung erstellt.');
+        setBusy(false);
+        return false;
+      }
       await setSetting('letzteSicherung', isoDate());
       setBusy(false);
       return true;
@@ -63,6 +68,7 @@ export default function Settings() {
       const plan = await planRestore(f);
       const v = plan.vorschau;
       const frage =
+        (plan.warnung ? `Warnung: ${plan.warnung}\n\n` : '') +
         `Diese Sicherung würde Folgendes bewirken:\n${formatMergeResult(v)}.` +
         (v.geloescht > 0 ? `\n\nAchtung: ${v.geloescht} ${v.geloescht === 1 ? 'Eintrag wird' : 'Einträge werden'} auf diesem Gerät gelöscht.` : '') +
         '\n\nJe Eintrag gilt der neuere Stand. Fortfahren?';
@@ -82,10 +88,10 @@ export default function Settings() {
   }
 
   async function alleLoeschen() {
-    if (!window.confirm('Sicherung erstellen, bevor alles gelöscht wird? „OK“ erstellt jetzt eine Sicherung, „Abbrechen“ überspringt sie.')) {
-      /* bewusst ohne Sicherung weiter */
-    } else if (!(await backup())) {
-      return; // Sicherung fehlgeschlagen: nichts löschen
+    if (window.confirm('Vor dem Löschen eine Sicherung erstellen? „OK“ erstellt jetzt eine Sicherung. „Abbrechen“ löscht noch nichts; ohne Sicherung geht es nur nach ausdrücklicher Bestätigung weiter.')) {
+      if (!(await backup())) return; // Sicherung fehlgeschlagen oder abgebrochen: nichts löschen
+    } else if (!window.confirm('Ohne Sicherung weitermachen? Die Daten sind danach unwiederbringlich verloren. „OK“ bestätigt den Verzicht auf die Sicherung, „Abbrechen“ löscht nichts.')) {
+      return;
     }
     if (!window.confirm('Wirklich ALLE Daten auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden.')) return;
     let n = 0;

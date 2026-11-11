@@ -94,6 +94,33 @@ export function evaluate(formula: string, vars: Record<string, number | null>): 
   }
 }
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Macht aus beliebigen gespeicherten Werten eine sichere Zeilenliste: Einträge, die keine Zeile sind (null, Zahl, Liste),
+ * entfallen; Zellen, die weder Text noch endliche Zahl noch null sind, werden zu null; fehlende `_id` wird ersetzt.
+ * Daten aus Sicherungen oder direkt in die Datenbank geschriebene Werte dürfen die Darstellung nie zum Absturz bringen.
+ */
+export function cleanRows(v: unknown): Row[] {
+  if (!Array.isArray(v)) return [];
+  const out: Row[] = [];
+  v.forEach((r, i) => {
+    if (!isObj(r)) return;
+    const row: Row = { _id: typeof r._id === 'string' && r._id ? r._id : `zeile-${i}` };
+    for (const [k, c] of Object.entries(r)) {
+      if (k === '_id') continue;
+      row[k] = typeof c === 'string' || (typeof c === 'number' && Number.isFinite(c)) ? c : null;
+    }
+    out.push(row);
+  });
+  return out;
+}
+
+/** Werte eines Protokolls als Objekt; alles andere zählt als leer. */
+export function cleanValues(v: unknown): Record<string, FieldValue> {
+  return isObj(v) ? (v as Record<string, FieldValue>) : {};
+}
+
 /** Zellwert als Zahl lesen; leer oder keine Zahl → null. Akzeptiert „2,5“. */
 function cellNumber(v: CellValue | undefined): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -109,7 +136,7 @@ function round(n: number, digits: number): number {
 
 /** Liefert die Zeile mit ausgerechneten Formelspalten (gerundet auf `digits`). Eingabespalten bleiben unverändert. */
 export function computeRow(columns: TableColumn[], row: Row): Row {
-  const out: Row = { ...row };
+  const out: Row = { ...(isObj(row) ? row : { _id: '' }) };
   const vars: Record<string, number | null> = {};
   for (const col of columns) {
     if (col.type !== 'number') continue;
@@ -119,7 +146,7 @@ export function computeRow(columns: TableColumn[], row: Row): Row {
       out[col.id] = v;
       vars[col.id] = v;
     } else {
-      vars[col.id] = cellNumber(row[col.id]) ?? col.default ?? null;
+      vars[col.id] = cellNumber(out[col.id]) ?? col.default ?? null;
     }
   }
   return out;
@@ -127,11 +154,11 @@ export function computeRow(columns: TableColumn[], row: Row): Row {
 
 /** Summen laut `field.summary`, in derselben Reihenfolge; fehlende/ungültige Zellen zählen 0. */
 export function tableSummary(field: TableField, rows: Row[]): number[] {
-  return (field.summary ?? []).map((s) => round(rows.reduce((sum, r) => sum + (cellNumber(r[s.column]) ?? 0), 0), 2));
+  return (field.summary ?? []).map((s) => round(cleanRows(rows).reduce((sum, r) => sum + (cellNumber(r[s.column]) ?? 0), 0), 2));
 }
 
 function isCheckResult(v: unknown): v is CheckResult {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) && 'status' in v;
+  return isObj(v) && 'status' in v;
 }
 
 /** Zählt Prüfpunkte (check-Felder und check-Spalten in Tabellen). */
@@ -143,15 +170,16 @@ export function protocolStats(template: Template, values: Record<string, FieldVa
     else if (status === 'na') s.na++;
     else s.offen++;
   };
+  const vals = cleanValues(values);
   for (const sec of template.sections) {
     for (const f of sec.fields) {
-      const v = values[f.id];
+      const v = vals[f.id];
       if (f.type === 'check') {
         count(isCheckResult(v) ? v.status : '');
       } else if (f.type === 'table') {
         const checkCols = f.columns.filter((c) => c.type === 'check');
         if (checkCols.length === 0 || !Array.isArray(v)) continue;
-        for (const row of v) for (const c of checkCols) count(row[c.id]);
+        for (const row of cleanRows(v)) for (const c of checkCols) count(row[c.id]);
       }
     }
   }

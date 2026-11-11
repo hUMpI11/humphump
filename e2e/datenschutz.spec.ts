@@ -67,6 +67,52 @@ test.describe('Datenschutz und Notausgang', () => {
     expect(page.url()).toMatch(/#\/$/);
   });
 
+  test('Alle Daten löschen bricht ab, wenn die Sicherung nicht zustande kommt', async ({ page }) => {
+    // Teilen-Dialog wird vom Nutzer geschlossen: kein Download, keine Sicherung.
+    await page.addInitScript(() => {
+      navigator.canShare = () => true;
+      navigator.share = () => Promise.reject(new DOMException('abgebrochen', 'AbortError'));
+    });
+    await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });
+    const dialoge = dialogTexte(page);
+    await page.goto('/#/einstellungen');
+    await page.getByRole('button', { name: 'Alle Daten auf diesem Gerät löschen' }).click();
+    await expect(hauptbereich(page).getByText('Es wurde keine Sicherung erstellt')).toBeVisible();
+    expect(dialoge.length).toBe(1); // nur die Frage nach der Sicherung, keine Löschrückfragen
+    expect((await tabelle(page, 'projects')).length).toBe(1);
+    expect((await tabelle(page, 'settings')).some((s) => s.key === 'letzteSicherung')).toBe(false);
+    await expect(hauptbereich(page).getByText('Letzte Sicherung: noch nie')).toBeVisible();
+  });
+
+  test('Alle Daten löschen ohne Sicherung nur nach ausdrücklicher Bestätigung', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });
+    await page.goto('/#/einstellungen');
+    const knopf = page.getByRole('button', { name: 'Alle Daten auf diesem Gerät löschen' });
+
+    // „Abbrechen“ bei der Sicherungsfrage und „Abbrechen“ beim Verzicht: nichts wird gelöscht.
+    page.removeAllListeners('dialog');
+    const texte: string[] = [];
+    page.on('dialog', (d) => {
+      texte.push(d.message());
+      void d.dismiss();
+    });
+    await knopf.click();
+    await expect.poll(() => texte.length).toBe(2);
+    expect(texte[1]).toMatch(/Ohne Sicherung/);
+    // Kein Zugriff über `tabelle` (offene Verbindung würde das spätere Löschen blockieren): Die Baustelle ist noch da.
+    await page.goto('/#/');
+    await expect(page.locator('.card-link')).toHaveCount(1);
+    await page.goto('/#/einstellungen');
+
+    // Ausdrücklicher Verzicht (zweite Frage bestätigt), danach beide Löschrückfragen bestätigt: gelöscht.
+    page.removeAllListeners('dialog');
+    let n = 0;
+    page.on('dialog', (d) => void (++n === 1 ? d.dismiss() : d.accept()));
+    await knopf.click();
+    await page.getByText('Noch keine Baustelle').waitFor();
+    expect(n).toBe(4);
+  });
+
   test('Fehlerbildschirm bietet Sicherung an und führt in die Einstellungen', async ({ page, seitenfehler }) => {
     seitenfehler.erlaube(/./); // React meldet den absichtlichen Darstellungsfehler in der Konsole
     await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });

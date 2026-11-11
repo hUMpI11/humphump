@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
+# Pull Requests haben je PR eine eigene Gruppe und werden bei neuem Push abgebrochen. Läufe auf main liegen in einer
+# anderen Gruppe und werden nie abgebrochen (ein laufendes Deployment soll nicht mittendrin enden).
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('deploy-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

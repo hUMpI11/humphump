@@ -16,7 +16,7 @@ Ein optionaler Server, der die lokalen Daten der PWA mehrerer Geräte und mehrer
 - Keine native App (`TODO-MANUELL.md`, Entscheidung 3). Dieselbe API bedient später iPhone-/iPad-PWA und eine verpackte Version.
 
 ### Was der Abgleich per Datei (Auftrag C) schon leistet
-Zusammenführen je Datensatz nach Zeitstempel, Löschvermerke, iPhone ↔ iPad für **eine** Person, ohne Konto, ohne laufende Kosten, ohne Datenschutzpflichten als Betreiber.
+Zusammenführen je Datensatz nach Zeitstempel (nur dort, ohne Server), Löschvermerke, iPhone ↔ iPad für **eine** Person, ohne Konto, ohne laufende Kosten, ohne Datenschutzpflichten als Betreiber.
 
 ### Was erst ein Server bringt
 | Bedarf | Datei-Abgleich | Server |
@@ -80,18 +80,30 @@ Jede synchronisierte Client-Tabelle (`SYNC_TABLES` in `src/db.ts`) wird eine Ser
 | Spalte | Bedeutung |
 |---|---|
 | `tenant_id` | Mandant, RLS-Schlüssel |
-| `updated_at` | Zeitstempel des Datensatzes in ms (Client-Wert, ggf. begrenzt, siehe 4.5) – derselbe Wert, den `decide` vergleicht |
-| `deleted_at` | gesetzt = Datensatz gelöscht (Löschvermerk, ersetzt die Tabelle `tombstones`); Daten werden geleert |
+| `version` | Server-Version des Datensatzes, +1 bei jeder angenommenen Änderung (auch Löschen); Grundlage der Konfliktentscheidung (4.4) |
+| `updated_at` | Zeitstempel des Clients in ms, **nur Hinweis** für Anzeige (ggf. begrenzt, siehe 4.4); entscheidet nichts |
+| `deleted_at` | gesetzt = Datensatz gelöscht (Löschvermerk, ersetzt die Tabelle `tombstones`); Daten werden geleert. Ebenfalls nur Hinweis; maßgeblich ist, dass der Datensatz gelöscht ist und eine Version hat |
 | `seq` | monotone Server-Nummer je Mandant, Grundlage des Pull-Cursors |
-| `author_id` | Benutzer, der die letzte Änderung geschickt hat |
+| `author_id` | Benutzer, der die **letzte angenommene** Änderung geschickt hat (aus dem Token, nie aus dem Body); gilt für jede Tabelle, siehe unten |
+| `created_by` | Benutzer, der den Datensatz **zuerst** angelegt hat; unveränderlich. Grundlage für „eigene Einträge“ in der Rechte-Matrix |
 
 Die fachlichen Felder (`projects.name`, `times.minuten`, …) entsprechen `src/db.ts`. **Vorschlag:** häufig gefilterte Felder (`project_id`, `datum`, bei `times` `user_id`) als echte Spalten, der Rest als `jsonb` – so bleibt die Server-Tabelle bei additiven Client-Änderungen (Schema nur additiv, `ARCHITEKTUR.md`) stabil. `tombstones` und `settings` des Clients werden **nicht** als Tabelle gespiegelt (Löschvermerk = `deleted_at`; Einstellungen sind gerätelokal; `profil` pro Benutzer wäre später ein eigener Endpunkt).
 
+**`author_id` und `created_by` je Tabelle** (beide setzt der Server aus dem Token):
+
+| Tabelle | `author_id` | `created_by` / Eigentümer |
+|---|---|---|
+| `projects` | letzter Bearbeiter | Anleger; Rechte laufen über Rolle und Zuweisung, nicht über den Anleger |
+| `times` | letzter Bearbeiter | = `user_id`: wessen Stunden es sind (bestimmt „eigene Stunden“); ändert ein Vorarbeiter den Eintrag, wechselt nur `author_id` |
+| `materials`, `notes`, `photos`, `sketches`, `protocols` | letzter Bearbeiter | Ersteller; bestimmt „eigene Einträge“ (Mitarbeiter ändern/löschen nur diese) |
+| `signatures` | Benutzer, der die Unterschrift aufgenommen hat | gleich; Unterschriften sind nach Anlegen unveränderlich, Änderung heißt löschen und neu anlegen |
+| `blobs` | Benutzer, der den Upload angefordert hat | gleich; Rechte folgen der Baustelle und dem zugehörigen Foto/der Skizze |
+
 Besonderheiten:
-- **`times.mitarbeiter`** ist heute freier Text. Für Rechte („wessen Stunden?“) braucht der Server `user_id`. Er setzt sie beim ersten Push aus dem Token (`author_id`); der Text bleibt als Anzeigename erhalten. Das ist eine **Client-Änderung** (Feld `userId` optional ergänzen, additiv).
+- **`times.mitarbeiter`** ist heute freier Text. Für Rechte („wessen Stunden?“) braucht der Server `user_id`. Er setzt sie beim ersten Push aus dem Token (`created_by`); der Text bleibt als Anzeigename erhalten. Das ist eine **Client-Änderung** (Feld `userId` optional ergänzen, additiv).
 - **`blobs`:** Server speichert nur Metadaten (`id`, `project_id`, `mime`, `size`, `sha256`, `object_key`, `status` ∈ {`pending`, `available`}). Die Binärdaten liegen im Objektspeicher.
 - **`photos.thumb`** und **`signatures.data`** (kleine Binärdaten) reisen als Base64 im Datensatz (Grenzen im Vertrag: Vorschaubild max. 128 KB, Unterschrift max. 512 KB **[Annahme]**: reicht für die heutigen Größen, vor Stufe 1 anhand echter Daten prüfen). Vollbilder, Skizzen-Renderings und Skizzenhintergründe (`id:bg`) laufen über den Objektspeicher.
-- **`updatedAt` bei allen Tabellen:** `times`, `materials`, `photos`, `signatures` haben im Client-Typ nur `createdAt`; `tracking.ts` (Auftrag C) ergänzt `updatedAt` beim Schreiben. Der Server verlangt `updatedAt` bei jedem Datensatz.
+- **`updatedAt` bei allen Tabellen:** `times`, `materials`, `photos`, `signatures` haben im Client-Typ nur `createdAt`; `tracking.ts` (Auftrag C) ergänzt `updatedAt` beim Schreiben. Der Server verlangt `updatedAt` bei jedem Datensatz, nur als Hinweis (Entscheidung fällt nach Server-Version, 4.4).
 
 ### Rechte-Matrix
 **[Annahme]** als Startpunkt; die Zuordnung ist eine fachliche Entscheidung des Menschen (Entscheidung 7).
@@ -110,52 +122,59 @@ Besonderheiten:
 
 **Entwurf – Schreibprüfung beim Upsert (nach Security-Review):** Der API-Dienst prüft das Schreibrecht gegen den **bestehenden** Datensatz (gehört er dem Mandanten, darf diese Rolle ihn ändern; bei fremden Stunden z. B. nur Vorarbeiter/Inhaber) **und** gegen das **Ziel** (die `projectId` im Body muss eine dem Benutzer zugewiesene Baustelle des Mandanten sein). Nur den neuen Zustand zu prüfen, würde erlauben, einen fremden Datensatz durch Umhängen auf eine eigene Baustelle zu „übernehmen“, oder umgekehrt Datensätze in eine nicht zugewiesene Baustelle zu schreiben. `tenant_id`, `author_id` und `deviceId` stammen **nie** aus dem Body, sondern aus Token und Sitzung; entsprechende Felder im Body werden verworfen. Das gilt auch für `delete`.
 
+**Entwurf – Rechteprüfung für Dateien und Löschen:**
+- **Upload-URLs** (`POST /v1/files/upload-urls`): Der Server prüft vor dem Signieren das Schreibrecht der Rolle auf die genannte Baustelle (zugewiesen, nicht gesperrt), dass die `blobId` zu diesem Mandanten und dieser Baustelle gehört (nicht einem fremden Blob entspricht) und Größe/Typ. Der Objektschlüssel wird vom Server gebildet (`tenant/<tenant_id>/…`), nie vom Client; eine Wiederholung für fremde Blobs ergibt 403. `complete` prüft dasselbe erneut.
+- **Download-URLs:** Leserecht auf die Baustelle und die Datensatzart nach Matrix (Mitarbeiter ohne Zuweisung: 403, unbekannte oder fremde Blobs: 404). Die URL gilt Minuten und nur für den einen Schlüssel.
+- **Löschen** (Push `delete`): Die Rolle muss das Löschen dieser Datensatzart erlauben (Baustelle löschen: nur Inhaber; Mitarbeiter: nur eigene Einträge nach `created_by`; Vorarbeiter: Einträge zugewiesener Baustellen, keine Baustellen). Der Löschvermerk mit seiner Kaskade (4.4) und das Entfernen der Objekte im Speicher laufen **erst nach** bestandener Prüfung; fehlendes Recht ergibt `rejected/forbidden`, nichts wird gelöscht.
+
 Durchsetzung: Rechte werden **im API-Dienst** geprüft (Push: Schreibrecht je Datensatz; Pull: Filter je Rolle). RLS sichert zusätzlich die Mandantengrenze; die Rollenlogik gehört nicht in RLS. Folge für den Pull: Sieht ein Mitarbeiter fremde Stunden nicht, darf der Server sie **nicht** ausliefern, auch nicht als Löschvermerk-Hülle mit Inhalt. Ändert sich der Rechtekreis einer Person (Zuweisung, Rolle), erhöht der Server deren „Scope-Version“ und beantwortet alte Cursor mit `410 cursor_expired`; das Gerät lädt neu (4.6).
 
 ## 4. Sync-Protokoll
 
 ### 4.1 Client: Warteschlange
 Neue Dexie-Tabellen (additiv, `db.version(4)`, **Änderung an `src/db.ts`** – nicht Teil dieses Auftrags):
-- `outbox`: Schlüssel `tabelle:id`, `op` (`upsert`/`delete`), `queuedAt`, `attempts`, `nextTryAt`. Ein Datensatz hat höchstens **einen** Eintrag (spätere Änderung überschreibt die frühere); es genügt der letzte Stand.
+- `syncmeta`: Schlüssel `tabelle:id`, `version` (letzte bekannte Server-Version; Grundlage der `baseVersion`).
+- `outbox`: Schlüssel `tabelle:id`, `op` (`upsert`/`delete`), `baseVersion`, lokale Änderungsnummer, `queuedAt`, `attempts`, `nextTryAt`. Ein Datensatz hat höchstens **einen** Eintrag (spätere Änderung überschreibt die frühere); es genügt der letzte Stand.
 - `uploads`: Schlüssel `blobId`, Zustand, `uploadId`, Fortschritt, `attempts`, `nextTryAt`.
 - `settings`: `deviceId` (UUID), `serverCursor`, `lastSyncAt`, `syncEnabled`.
 
-`tracking.ts` schreibt zusätzlich zu `updatedAt`/Löschvermerk einen `outbox`-Eintrag (außerhalb von `withoutTracking`). Vom Server geholte Änderungen werden in `withoutTracking` eingespielt und erzeugen **keinen** Rückkanal. Der vorhandene Dateiabgleich bleibt als Ausweichweg bestehen.
+`tracking.ts` schreibt zusätzlich zu `updatedAt`/Löschvermerk einen `outbox`-Eintrag (nicht in einer mit `untrackCurrentTransaction` ausgenommenen Transaktion). Vom Server geholte Änderungen werden in einer solchen ausgenommenen Transaktion eingespielt und erzeugen **keinen** Rückkanal; Eingaben der Oberfläche währenddessen bleiben verfolgt. Der vorhandene Dateiabgleich bleibt als Ausweichweg bestehen.
 
 Aktuelle Zustände müssen vor dem ersten Abgleich einmalig in die `outbox` gelegt werden (Erstabgleich, Entscheidung 14).
 
 ### 4.2 Push
-`POST /v1/sync/push` mit `deviceId`, `batchId` (UUID) und bis zu 100 Änderungen (`upsert` mit vollem Datensatz, oder `delete` mit `deletedAt`). Der Server prüft Token, Rolle, Schema, Größe und wendet **pro Datensatz** `decide` an (4.4). Antwort je Änderung: `applied`, `ignored_older` (Server hat neueren Stand), `ignored_deleted` (Löschvermerk gewinnt), `rejected` (Recht/Validierung, mit Grund). Konflikte sind kein Fehler; verlorene Änderungen werden **nicht** wiederholt.
+`POST /v1/sync/push` mit `deviceId`, `batchId` (UUID) und bis zu 100 Änderungen (`upsert` mit vollem Datensatz, oder `delete`), jede mit der `baseVersion`, auf der sie aufbaut (0 = neuer Datensatz). Der Server prüft Token, Rolle, Schema, Größe und entscheidet **pro Datensatz** nach Version (4.4). Antwort je Änderung: `applied` (mit neuer `version`), `conflict` (der Server-Stand ist inzwischen ein anderer; er wird mitgeliefert, bzw. `serverDeleted`) oder `rejected` (Recht/Validierung, mit Grund). Konflikte sind kein Fehler; abgewiesene Änderungen werden **nicht** wiederholt, sondern dem Nutzer angezeigt (4.9).
 
 ### 4.3 Idempotenz
-- Alle Datensatz-IDs sind Client-UUIDs; Wiederholen derselben Änderung ändert nichts (`decide`: gleicher Zeitstempel → keine Änderung).
+- Alle Datensatz-IDs sind Client-UUIDs. Eine wiederholte Änderung trifft entweder dieselbe `baseVersion` (dann ist sie schon in der gespeicherten Antwort zur `batchId` enthalten) oder einen schon weitergezählten Stand: Ist der Inhalt identisch mit dem Server-Stand, antwortet der Server `applied` ohne neue Version, sonst `conflict`.
 - `batchId` macht ganze Pakete wiederholbar: Der Server merkt sich Antworten je `(tenant, batchId)` mindestens 24 Stunden und liefert bei Wiederholung dieselbe Antwort. Der Header `Idempotency-Key` trägt dieselbe ID.
-- Schreibt der Client bei Netzabbruch nicht bestätigt, schickt er das Paket unverändert nochmals. Erst nach Antwort wird der `outbox`-Eintrag gelöscht – und nur, wenn der Eintrag nicht inzwischen durch eine neuere lokale Änderung ersetzt wurde (Vergleich von `updatedAt`).
+- Schreibt der Client bei Netzabbruch nicht bestätigt, schickt er das Paket unverändert nochmals. Erst nach Antwort wird der `outbox`-Eintrag gelöscht – und nur, wenn der Eintrag nicht inzwischen durch eine neuere lokale Änderung ersetzt wurde (Vergleich einer lokalen Änderungsnummer im Eintrag, nicht der Uhrzeit).
 
 ### 4.4 Konfliktstrategie
-**Gleiche Strategie wie Auftrag C** (`src/sync/merge.ts`, `decide`): Datensatzebene, neuerer Zeitstempel (`updatedAt ?? createdAt ?? 0`) gewinnt; ein Löschvermerk gewinnt, wenn `deletedAt >= Zeitstempel` des Datensatzes. Der Server implementiert dieselbe Regel (Server-Stand = „lokal“, Push = „eingehend“) und besteht auf denselben Testfällen wie `merge.test.ts`. Die Regeln müssen in Client und Server **identisch** bleiben; ideal wäre eine gemeinsame, abhängigkeitsfreie Datei (reine Funktion), die beide importieren **[Vorschlag]**.
+**Ein Entscheidungsmodell: Server-Version und `baseVersion`. Die Reihenfolge vergibt der Server; Zeitstempel des Clients entscheiden nie.**
 
-**Zwei Abweichungen/Ergänzungen, begründet:**
-1. **Gleichstand.** In C bleibt bei gleichem Zeitstempel der lokale Stand. Zwischen zwei Geräten ohne Server könnte dadurch dauerhaft Verschiedenes bleiben. Mit Server gilt: **der Server-Stand ist maßgeblich**; bei Gleichstand übernimmt der Client den Server-Stand (die Push-Antwort liefert ihn mit). Das ist nur eine Ausnahme im Sync-Pfad, `decide` selbst bleibt unverändert.
-2. **Uhr-Begrenzung.** Geht eine Geräteuhr weit vor, würde ihr Stand auf Dauer gewinnen. Der Server vergleicht `updatedAt` mit seiner Zeit; liegt sie mehr als 5 Minuten **[Annahme: Schwelle]** in der Zukunft, setzt er `updated_at = Serverzeit` und meldet den Versatz in der Antwort (`clockSkewMs`), damit die App warnen kann. Bei Uhren, die nachgehen, bleibt das Risiko bestehen (ältere Änderung verliert).
+Jeder Datensatz hat am Server eine `version` (+1 je angenommener Änderung, auch Löschen) und die Mandanten-`seq` (4.5). Jede Änderung nennt die `baseVersion`, auf der sie aufbaut:
+- **`baseVersion` = Server-`version`:** Die Änderung baut auf dem aktuellen Stand auf und wird übernommen (`applied`). Neue Datensätze haben `baseVersion` 0.
+- **`baseVersion` < Server-`version`** (zwischenzeitlich hat jemand anderes geändert oder gelöscht): **Konflikt.** Der Server-Stand bleibt, die Änderung wird nicht angewandt (`conflict`), die Antwort enthält den Server-Stand bzw. `serverDeleted`. Der Client übernimmt den Server-Stand lokal; seine abgelehnte Fassung zeigt er dem Nutzer an („Änderung wurde durch eine neuere ersetzt“), bis dieser sie verwirft oder erneut anwendet (dann mit der neuen `baseVersion`). Es geht nichts stillschweigend verloren.
+- **Löschen** folgt derselben Regel: Ein `delete` mit aktueller `baseVersion` wird übernommen; mit veralteter `baseVersion` (der Datensatz wurde inzwischen geändert) ist es ein Konflikt und der Datensatz bleibt. Ein `upsert` auf einen inzwischen gelöschten Datensatz mit veralteter `baseVersion` ist ebenfalls ein Konflikt (`serverDeleted`); wer ihn wiederherstellen will, legt ihn bewusst neu an.
+- **Pull:** Der Client übernimmt Server-Stände und merkt sich deren `version` je Datensatz (Tabelle `syncmeta`, 4.1). Hat er für denselben Datensatz noch eine offene Änderung in der `outbox`, bleibt sie bestehen; sie wird beim nächsten Push als Konflikt gemeldet, falls die `baseVersion` überholt ist.
+
+**Client-Zeit ist nur ein Hinweis.** `updatedAt` und `deletedAt` dienen der Anzeige (z. B. „zuletzt geändert“) und der Warnung bei falscher Uhr. Der Server vergleicht den Hinweis mit seiner Zeit; liegt er mehr als 5 Minuten **[Annahme: Schwelle]** in der Zukunft, setzt er ihn für die Anzeige auf die Serverzeit und meldet den Versatz (`clockSkewMs`), damit die App warnen kann. Eine falsch gestellte oder manipulierte Uhr kann so keinen Stand dauerhaft „gewinnen lassen“, weil sie die Entscheidung gar nicht beeinflusst.
+
+**Abgrenzung zum Datei-Abgleich (Auftrag C).** `src/sync/merge.ts` (`decide`) entscheidet nach Zeit: neuerer `updatedAt ?? createdAt ?? 0` gewinnt, Löschvermerk bei `deletedAt >= Zeitstempel`. Dort gibt es keine gemeinsame Instanz für eine Reihenfolge. Damit eine falsche Uhr nicht dauerhaft gewinnt, begrenzt `merge.ts` Zeitstempel auf den Erstellzeitpunkt der Sicherung plus 5 Minuten. Der Server-Weg ersetzt diese Zeitregel durch die Versionsregel; beide Wege bleiben getrennt, `decide` wird für den Server **nicht** wiederverwendet. Beim Erstabgleich (Entscheidung 14) wird jeder lokale Datensatz mit `baseVersion` 0 gesendet; kennt der Server die `id` schon, ist es ein Konflikt und der Server-Stand gilt.
 
 **Grenzen (ehrlich):**
-- **Datensatz statt Feld:** Ändern zwei Personen offline dieselbe Baustelle (z. B. A die Adresse, B das Telefon), gewinnt der spätere Stand komplett; die andere Änderung geht verloren. Meist unkritisch, weil Stunden, Material, Notizen, Fotos je eigene Datensätze sind und von **einer** Person erfasst werden. Kritisch: `projects`, `notes` (Mehrfachbearbeitung), `protocols` (mehrere Personen füllen dasselbe Protokoll). Mögliche Nachbesserung: Feld-Zeitstempel für `projects`/`protocols.values` (offene Entscheidung 6).
-- **Uhren** der Geräte müssen ungefähr stimmen (siehe oben).
-- **Löschen gewinnt** gegen gleichzeitig Bearbeitetes nur, wenn der Löschzeitpunkt nicht älter ist als die Bearbeitung.
-- **Kaskade:** Löscht jemand eine Baustelle, schreibt der Client Löschvermerke für alle abhängigen Datensätze (`deleteProject`); der Server löscht abhängige Zeilen bei einem `projects`-Löschvermerk zusätzlich selbst, damit nachträglich eintreffende Alt-Datensätze nicht „zurückkehren“.
-
-**Entwurf – Nachschärfung nach Security-Review (Reihenfolge und Zeit):**
-- **Reihenfolge am Server über Server-Sequenz, nicht über Client-Zeit.** Jeder Datensatz trägt am Server einen Versionszähler (`version`, bei jeder angenommenen Änderung +1) und die Mandanten-`seq` (4.5). Ein Upsert nennt die `baseVersion`, auf der er aufbaut; passt sie nicht zum Server-Stand, ist es ein Konflikt, der nach Regel 4.4 entschieden und gemeldet wird. `updatedAt`/`deletedAt` vom Client sind nur ein **Hinweis** (Anzeige, Tie-Break) und nie allein ausschlaggebend. `deletedAt` wird wie `updatedAt` behandelt: ebenfalls Hinweis, ebenfalls begrenzt; ein Löschvermerk mit Zeit in ferner Zukunft darf nichts dauerhaft sperren.
-- **Begründung der Abweichung zur Datei-Zusammenführung:** Dort gibt es keine gemeinsame Instanz, die eine Reihenfolge vergeben könnte; deshalb entscheidet die Zeit, und `merge.ts` begrenzt Zeitstempel auf „jetzt + 24 h“ (sonst `jetzt`). Mit Server existiert eine vertrauenswürdige Reihenfolge, und eine falsch gestellte oder manipulierte Geräteuhr soll keinen Stand dauerhaft „gewinnen“ lassen. Die strengere Uhr-Begrenzung aus Punkt 2 oben bleibt als zusätzliche Absicherung.
+- **Datensatz statt Feld:** Ändern zwei Personen offline dieselbe Baustelle (z. B. A die Adresse, B das Telefon), gewinnt die zuerst am Server angekommene Änderung komplett; die andere wird als Konflikt gemeldet und muss neu angewandt werden. Meist unkritisch, weil Stunden, Material, Notizen, Fotos je eigene Datensätze sind und von **einer** Person erfasst werden. Kritisch: `projects`, `notes` (Mehrfachbearbeitung), `protocols` (mehrere Personen füllen dasselbe Protokoll). Mögliche Nachbesserung: feldweise Versionen für `projects`/`protocols.values` (offene Entscheidung 6).
+- **Wer zuerst sendet, gewinnt:** Eine lange offline gemachte Änderung kann von einer später gemachten, aber früher gesendeten verdrängt werden. Das ist bewusst: Es ist nachvollziehbar und unabhängig von Uhren.
+- **Kaskade:** Löscht jemand eine Baustelle, schreibt der Client Löschvermerke für alle abhängigen Datensätze (`deleteProject`); der Server löscht abhängige Zeilen bei einem `projects`-Löschvermerk zusätzlich selbst, damit nachträglich eintreffende Alt-Datensätze nicht „zurückkehren“ (sie ergeben `conflict`/`serverDeleted`). Voraussetzung ist die Löschberechtigung (Abschnitt 3).
 
 ### 4.5 Pull mit Cursor
-`GET /v1/sync/pull?cursor=<opak>&limit=200`. Der Server vergibt beim Schreiben jeder Änderung die nächste Nummer `seq` aus dem Mandanten-Zähler (Zähler wird in derselben Transaktion erhöht und gesperrt; dadurch entstehen keine „späteren, aber kleineren“ Nummern, die ein Pull überspringen könnte **[Annahme]** – bei kleinen Mandanten unproblematisch, Schreiblast je Mandant wird serialisiert). Der Pull liefert alle Änderungen mit `seq > cursor` in Reihenfolge, dazu `hasMore` und den nächsten Cursor. Der Client wendet jede Änderung mit `decide(lokal, eingehend, lokaleLoeschung, eingehendeLoeschung)` in `withoutTracking` an – exakt wie `mergeTables`. Der Cursor wird erst nach erfolgreichem Einspielen der Seite gespeichert.
+`GET /v1/sync/pull?cursor=<opak>&limit=200`. Der Server vergibt beim Schreiben jeder Änderung die nächste Nummer `seq` aus dem Mandanten-Zähler (Zähler wird in derselben Transaktion erhöht und gesperrt; dadurch entstehen keine „späteren, aber kleineren“ Nummern, die ein Pull überspringen könnte **[Annahme]** – bei kleinen Mandanten unproblematisch, Schreiblast je Mandant wird serialisiert). Der Pull liefert alle Änderungen mit `seq > cursor` in Reihenfolge, dazu `hasMore` und den nächsten Cursor. Der Client wendet jede Änderung als Server-Stand an (mit ihrer `version`), in einer Transaktion, die von der Änderungsverfolgung ausgenommen ist (`untrackCurrentTransaction`, `src/sync/tracking.ts`), außer der Datensatz hat eine offene Änderung in der `outbox` (4.4). Der Cursor wird erst nach erfolgreichem Einspielen der Seite gespeichert.
 
 **Reihenfolge:** Erst Push, dann Pull, damit lokale Änderungen vor dem Überschreiben geprüft werden.
 
 ### 4.6 Aufbewahrung von Löschvermerken, Neuabgleich
-Der Server hält Löschvermerke mindestens **180 Tage** (wie der Client). Ein Gerät, das länger offline war (Cursor älter), oder dessen Rechtekreis sich geändert hat, bekommt `410 cursor_expired`. Es schickt zuerst seine offenen lokalen Änderungen (Push), holt dann den Stand komplett (Pull ohne Cursor, seitenweise) und entscheidet je Datensatz mit `decide`. Lokale Datensätze, die der Server nicht kennt und die nicht in der `outbox` stehen, gelten als gelöscht (nur in diesem Modus, mit Rückfrage in der Oberfläche **[Vorschlag]**).
+Der Server hält Löschvermerke mindestens **180 Tage** (wie der Client). Ein Gerät, das länger offline war (Cursor älter), oder dessen Rechtekreis sich geändert hat, bekommt `410 cursor_expired`. Es schickt zuerst seine offenen lokalen Änderungen (Push), holt dann den Stand komplett (Pull ohne Cursor, seitenweise) und übernimmt je Datensatz den Server-Stand (offene eigene Änderungen bleiben und werden als Konflikt gemeldet, falls überholt). Lokale Datensätze, die der Server nicht kennt und die nicht in der `outbox` stehen, gelten als gelöscht (nur in diesem Modus, mit Rückfrage in der Oberfläche **[Vorschlag]**).
 
 ### 4.7 Wiederholung mit Backoff
 Fehlerklassen: Netzfehler, 408/429/5xx → wiederholen; 4xx (außer 408/409/429) → nicht wiederholen, Eintrag als „Fehler“ markieren und anzeigen; 401 → Token erneuern (5), sonst „Anmeldung nötig“. Backoff: exponentiell mit Zufallsanteil, z. B. 5 s, 15 s, 1 min, 5 min, dann höchstens alle 15 min **[Annahme: Werte]**; `Retry-After` des Servers hat Vorrang. Auslöser: App-Start, Rückkehr in den Vordergrund, Ereignis `online`, nach jeder lokalen Änderung (entprellt), manuell. **[Annahme]** iOS-Safari unterstützt Background Sync für PWAs nicht verlässlich; Abgleich läuft deshalb nur bei geöffneter App. Das ist zu testen (`TODO-MANUELL.md`, manuelle Schritte).
@@ -174,10 +193,10 @@ Ein Statuszustand pro Gerät, abgeleitet aus Outbox/Uploads/Cursor: **Aktuell** 
 
 ### 4.10 Änderungen im Client (Übersicht)
 Nicht Teil dieses Auftrags, aber Folge des Entwurfs:
-1. `db.ts`: `outbox`, `uploads`, optionale `userId` in `TimeEntry`; Schemaversion 4 (additiv).
+1. `db.ts`: `outbox`, `syncmeta`, `uploads`, optionale `userId` in `TimeEntry`; Schemaversion 4 (additiv).
 2. `tracking.ts`: Outbox-Einträge schreiben; `updatedAt` für alle synchronisierten Tabellen (in C vorgesehen).
 3. Neues `src/sync/engine.ts` (Push/Pull/Backoff) und `src/sync/api.ts` (typisierter Client, ideal aus `openapi.yaml` erzeugt; keine neue Abhängigkeit zwingend).
-4. `decide` als geteilte reine Funktion; Ausnahme „Server gewinnt bei Gleichstand“ (4.4).
+4. Versionslogik im Sync-Worker (`baseVersion` je Änderung, Konflikt-Anzeige, 4.4); `decide` bleibt dem Datei-Abgleich vorbehalten.
 5. Foto-/Skizzenpfad: Blob-Metadaten ohne Daten zulassen, Upload-Warteschlange, Status in der UI.
 6. Einstellungen: Anmeldung, Sync an/aus, Status, Gerät abmelden.
 7. Service Worker: API-Aufrufe nie cachen; Antworten mit `Authorization` nicht im Cache.
@@ -293,7 +312,7 @@ Zur Übernahme in `TODO-MANUELL.md`. Empfehlung jeweils nach meiner Einschätzun
    - *Empfehlung:* a), solange nur eine Person mit zwei Geräten arbeitet; b), sobald Mitarbeiter mitarbeiten sollen oder Fotos/Datensicherung zum Problem werden. c) erst nach Erfahrung mit b) und rechtlicher Klärung.
 2. **Eigenbau oder Fertigdienst für den Sync?**
    - a) Eigener API-Dienst nach `openapi.yaml`. b) Hosted-Sync/BaaS mit passender Region. c) Sync-Engine selbst betrieben.
-   - *Empfehlung:* a), weil der Vertrag zum vorhandenen Datenmodell und `decide` passt und die Rollen-Matrix frei bleibt; vorher b) auf EU-Region, Rollenfähigkeit und Auftragsverarbeitung prüfen **[nicht geprüft]**.
+   - *Empfehlung:* a), weil der Vertrag zum vorhandenen Datenmodell passt und die Rollen-Matrix frei bleibt; vorher b) auf EU-Region, Rollenfähigkeit und Auftragsverarbeitung prüfen **[nicht geprüft]**.
 3. **Hosting-Anbieter und Region (EU).**
    - a) Europäischer Anbieter mit Sitz in der EU. b) Großer Cloud-Anbieter, EU-Region. c) Eigener Server beim Betrieb.
    - *Empfehlung:* a) wegen einfacherer Rechtslage **[Annahme]**; b) nur nach Prüfung der Drittlandfragen; c) nur mit Betriebs-Know-how.
@@ -304,8 +323,8 @@ Zur Übernahme in `TODO-MANUELL.md`. Empfehlung jeweils nach meiner Einschätzun
    - a) Einmalcode per E-Mail. b) Passwort. c) Passkey (mit Code als Rückfall). d) Einladungs-QR für Mitarbeiter.
    - *Empfehlung:* a) + d) zuerst, c) als Komfort; b) vermeiden.
 6. **Konfliktauflösung.**
-   - a) Datensatz-Ebene (wie Auftrag C). b) Feldweise für `projects` und `protocols`. c) Manuelle Konfliktansicht.
-   - *Empfehlung:* a) für Stufe 1–2, weil dieselbe Logik wie C; b) erst, wenn mehrere Personen dieselben Baustellen/Protokolle ändern. Zusätzlich: Uhr-Begrenzung (4.4) ja/nein.
+   - a) Datensatz-Ebene mit Server-Version (4.4). b) Feldweise für `projects` und `protocols`. c) Manuelle Konfliktansicht.
+   - *Empfehlung:* a) für Stufe 1–2, weil die Versionsregel einfach und uhrenunabhängig ist; b) erst, wenn mehrere Personen dieselben Baustellen/Protokolle ändern. Zusätzlich: Anzeige und Umgang mit abgelehnten Änderungen (4.4) und Warnung bei falscher Uhr ja/nein.
 7. **Rechte-Matrix.** Wer sieht wessen Stunden, wer darf löschen, gibt es Baustellen-Zuweisung?
    - a) Wie Abschnitt 3 (Mitarbeiter sieht nur eigene Stunden). b) Alle im Betrieb sehen alles. c) Zuweisung pro Baustelle plus a).
    - *Empfehlung:* a) mit Zuweisung ab Stufe 2; b) nur bei sehr kleinem, vertrautem Team und nach Datenschutzprüfung.
@@ -328,7 +347,7 @@ Zur Übernahme in `TODO-MANUELL.md`. Empfehlung jeweils nach meiner Einschätzun
     - a) Sync-Sperre. b) Zusätzlich Hinweis auf Gerätesperre in der App. c) Mobilgeräteverwaltung beim Betrieb.
     - *Empfehlung:* a) + b).
 14. **Erstabgleich bestehender Daten.** Welches Gerät liefert den Anfangsstand, wenn mehrere Geräte schon Daten haben?
-    - a) Alle laden hoch, `decide` führt zusammen. b) Ein Gerät ist Quelle, andere werden überschrieben. c) Vorher Datei-Abgleich (Auftrag C).
+    - a) Alle laden hoch (`baseVersion` 0), der Server-Stand gewinnt je `id` (4.4). b) Ein Gerät ist Quelle, andere werden überschrieben. c) Vorher Datei-Abgleich (Auftrag C).
     - *Empfehlung:* c), dann a).
 15. **iOS-Verhalten prüfen (Test auf echten Geräten).** Hintergrund-Abgleich, Cookie-Lebensdauer in der installierten PWA, Speichergrenzen, Link-Anmeldung in der PWA. Ergebnis kann Entscheidungen 5 und 12 ändern.
     - *Empfehlung:* kleiner Test vor Stufe 1 (kein Serverbau nötig für Teile davon).

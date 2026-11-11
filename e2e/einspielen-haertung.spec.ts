@@ -85,6 +85,7 @@ test.describe('Einspielen: kaputte und präparierte Sicherungen', () => {
   test('Löschvermerk mit deletedAt 1e15 löscht nicht dauerhaft', async ({ page }) => {
     await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });
     const p0 = (await tabelle(page, 'projects'))[0];
+    const vorher = Date.now(); // vor dem Erstellen der Dateien: deren `erstellt` ist der Bezug für die Begrenzung
     const dir = ordner();
     const alt = sicherungsdatei(join(dir, 'alt.json'), { projects: [p0] });
     const vermerk = sicherungsdatei(join(dir, 'vermerk.json'), {
@@ -92,7 +93,6 @@ test.describe('Einspielen: kaputte und präparierte Sicherungen', () => {
     });
 
     // Der Vermerk löscht die Baustelle, wird aber auf „jetzt“ begrenzt statt auf 1e15.
-    const vorher = Date.now();
     const m1 = await einspielen(page, vermerk);
     expect(m1).toMatch(/1 gelöscht/);
     expect(m1).toMatch(/1 Zeitstempel korrigiert/);
@@ -175,5 +175,88 @@ test.describe('Einspielen: kaputte und präparierte Sicherungen', () => {
       await einspielen(page, datei);
       expect(await tabelle(page, 'projects')).toHaveLength(1);
     }
+  });
+
+  test('Protokoll mit null-Zeile in der Tabelle wird beim Einspielen übersprungen', async ({ page }) => {
+    const protokoll = (id: string, values: unknown) => ({
+      id, projectId: 'fremd-1', templateId: 'aufmass-flaeche', templateVersion: 1, titel: id, datum: '2026-05-04', values, abgeschlossen: false, createdAt: 1000, updatedAt: 1000,
+    });
+    const datei = sicherungsdatei(join(ordner(), 'protokoll.json'), {
+      projects: [projektZeile()],
+      protocols: [
+        protokoll('bose-1', { positionen: [null] }),
+        protokoll('bose-2', { positionen: [{ _id: 'z1', l: { objekt: 1 } }] }),
+        protokoll('bose-3', { pruefung: { status: 'kaputt', bemerkung: '' } }),
+        protokoll('gut-1', { positionen: [{ _id: 'z1', l: 2, b: 3, bezeichnung: 'Wand' }], bemerkung: 'ok' }),
+      ],
+    });
+    const meldung = await einspielen(page, datei);
+    expect(meldung).toMatch(/2 neu/); // Baustelle + 1 Protokoll
+    expect(meldung).toMatch(/3 ungültig und übersprungen/);
+    expect((await tabelle(page, 'protocols')).map((p) => p.id)).toEqual(['gut-1']);
+  });
+
+  test('Direkt geschriebenes Protokoll mit null-Zeile und Objekt als Zelle lässt Protokoll-Tab, Editor und Bericht nicht abstürzen', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });
+    const [projekt] = await tabelle(page, 'projects');
+    const heute = new Date().toISOString().slice(0, 10);
+    await page.evaluate(
+      ({ projectId, datum }) =>
+        new Promise<void>((fertig, fehler) => {
+          const q = indexedDB.open('baustellenbuch');
+          q.onerror = () => fehler(q.error);
+          q.onsuccess = () => {
+            const t = q.result.transaction('protocols', 'readwrite');
+            t.objectStore('protocols').put({
+              id: 'roh-1', projectId, templateId: 'aufmass-flaeche', templateVersion: 1, titel: 'Roh', datum, abgeschlossen: false, createdAt: Date.now(), updatedAt: Date.now(),
+              values: { positionen: [null, 5, { _id: 'z1', bezeichnung: { x: 1 }, l: { y: 2 }, b: 3 }], bemerkung: { objekt: true } },
+            });
+            t.oncomplete = () => fertig();
+            t.onerror = () => fehler(t.error);
+          };
+        }),
+      { projectId: projekt.id, datum: heute },
+    );
+    await page.goto(`/#/p/${projekt.id}/protokolle`);
+    await page.reload();
+    const zeile = hauptbereich(page).locator('.rows li').first();
+    await expect(zeile).toBeVisible();
+    await zeile.locator('a, button').first().click();
+    await page.waitForURL(/\/protokoll\//);
+    await expect(hauptbereich(page).getByRole('button', { name: '+ Position' })).toBeVisible();
+    await page.goto(`/#/p/${projekt.id}/bericht`);
+    await expect(page.locator('.report').getByText('Aufmaß Fläche')).toBeVisible();
+    await expect(page.getByText('Da ist etwas schiefgelaufen')).toHaveCount(0);
+  });
+
+  test('Einspielen behält Zeitstempel und Löschvermerk der Datei (Änderungsverfolgung ausgesetzt)', async ({ page }) => {
+    const dir = ordner();
+    await einspielen(page, sicherungsdatei(join(dir, 'a.json'), { projects: [projektZeile({ updatedAt: 1000 })] }));
+    expect((await tabelle(page, 'projects'))[0].updatedAt).toBe(1000);
+    const geloescht = Date.now() - 3_600_000; // jünger als 180 Tage, sonst räumt das Einspielen den Vermerk wieder ab
+    const m = await einspielen(page, sicherungsdatei(join(dir, 'b.json'), { tombstones: [{ key: 'projects:fremd-1', table: 'projects', id: 'fremd-1', deletedAt: geloescht }] }));
+    expect(m).toMatch(/1 gelöscht/);
+    const tombs = await tabelle(page, 'tombstones');
+    expect(tombs).toHaveLength(1);
+    expect(tombs[0].deletedAt).toBe(geloescht); // kein von den Hooks erzeugter Vermerk mit „jetzt“
+  });
+
+  test('Unplausibles Sicherungsdatum: Warnung in der Rückfrage; Zeitfenster 5 Minuten', async ({ page }) => {
+    const dialoge: string[] = [];
+    page.on('dialog', (d) => dialoge.push(d.message()));
+    const datei = join(ordner(), 'alt.json');
+    writeFileSync(datei, JSON.stringify({ format: 'baustellenbuch-backup', version: 1, erstellt: '2020-01-01T00:00:00.000Z', tables: { projects: [projektZeile()] } }));
+    await einspielen(page, datei);
+    expect(dialoge.some((t) => /Sicherungsdatum unplausibel/.test(t))).toBe(true);
+
+    dialoge.length = 0;
+    const zukunft = join(ordner(), 'zukunft.json');
+    writeFileSync(zukunft, JSON.stringify({ format: 'baustellenbuch-backup', version: 1, erstellt: new Date(Date.now() + 3_600_000).toISOString(), tables: {} }));
+    await einspielen(page, zukunft);
+    expect(dialoge.some((t) => /Sicherungsdatum unplausibel/.test(t))).toBe(true);
+
+    dialoge.length = 0;
+    await einspielen(page, sicherungsdatei(join(ordner(), 'ok.json'), { projects: [projektZeile({ id: 'fremd-2' })] }));
+    expect(dialoge.some((t) => /unplausibel/.test(t))).toBe(false);
   });
 });

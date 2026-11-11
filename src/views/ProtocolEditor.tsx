@@ -3,7 +3,7 @@ import { db, touchProject } from '../db';
 import { go } from '../lib/router';
 import { isoDate, fmtNumber, parseDecimal, uid } from '../lib/util';
 import { Empty, Field as FormField, Header } from '../components/ui';
-import { computeRow, initialValue, protocolStats, tableSummary } from '../protocols/calc';
+import { cleanRows, cleanValues, computeRow, initialValue, protocolStats, tableSummary } from '../protocols/calc';
 import { templateById } from '../protocols/templates';
 import type { CellValue, CheckResult, CheckStatus, Field, FieldValue, Row, TableColumn, TableField, Template } from '../protocols/types';
 import '../protocols/protocols.css';
@@ -19,7 +19,7 @@ type SaveState = 'clean' | 'dirty' | 'saving' | 'saved' | 'error';
 
 /** Fehlende Felder mit Startwert ergänzen; Felder, die die Vorlage nicht kennt, bleiben unberührt gespeichert, werden aber nicht angezeigt. */
 function normalize(template: Template, values: Record<string, FieldValue> | undefined): Record<string, FieldValue> {
-  const out: Record<string, FieldValue> = { ...(values ?? {}) };
+  const out: Record<string, FieldValue> = { ...cleanValues(values) };
   for (const sec of template.sections) {
     for (const f of sec.fields) {
       const v = out[f.id];
@@ -27,6 +27,7 @@ function normalize(template: Template, values: Record<string, FieldValue> | unde
         v !== undefined &&
         (f.type === 'table' ? Array.isArray(v) : f.type === 'check' ? typeof v === 'object' && v !== null && !Array.isArray(v) : !(typeof v === 'object' && v !== null));
       if (!fits) out[f.id] = initialValue(f);
+      else if (f.type === 'table') out[f.id] = cleanRows(v);
     }
   }
   return out;
@@ -49,7 +50,7 @@ export default function ProtocolEditor({ projectId, protocolId }: { projectId: s
       if (!p || p.projectId !== projectId) return setState('missing');
       setTemplateId(p.templateId);
       const t = templateById(p.templateId);
-      const d: Doc = { titel: p.titel, datum: p.datum, values: t ? normalize(t, p.values) : (p.values ?? {}), abgeschlossen: p.abgeschlossen };
+      const d: Doc = { titel: p.titel, datum: p.datum, values: t ? normalize(t, p.values) : cleanValues(p.values), abgeschlossen: p.abgeschlossen };
       docRef.current = d;
       setDoc(d);
       setState('ready');
@@ -278,7 +279,8 @@ function FieldView({ field, value, onChange, hideTitle }: { field: Field; value:
         </FormField>
       );
     case 'check': {
-      const v = (value as CheckResult | undefined) ?? { status: '', bemerkung: '' };
+      const raw = value as Partial<CheckResult> | null | undefined;
+      const v: CheckResult = { status: (raw?.status as CheckStatus) ?? '', bemerkung: typeof raw?.bemerkung === 'string' ? raw.bemerkung : '' };
       return (
         <div className="proto-check">
           <span className="proto-check-name">{field.label}</span>
@@ -291,7 +293,7 @@ function FieldView({ field, value, onChange, hideTitle }: { field: Field; value:
       );
     }
     case 'table':
-      return <TableView field={field} rows={Array.isArray(value) ? value : []} onChange={onChange} hideTitle={hideTitle} />;
+      return <TableView field={field} rows={cleanRows(value)} onChange={onChange} hideTitle={hideTitle} />;
   }
 }
 

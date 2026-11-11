@@ -10,9 +10,13 @@ info:
     Grundregeln:
     - Alle Datensatz-IDs sind vom Client erzeugte UUIDs.
     - Zeitstempel sind Millisekunden seit 1970 (UTC), wie `updatedAt`/`createdAt` im Client.
-    - Konfliktregel (identisch mit `decide` in src/sync/merge.ts): je Datensatz gewinnt der
-      neuere Zeitstempel (`updatedAt ?? createdAt ?? 0`); ein Löschvermerk gewinnt bei
-      `deletedAt >= Zeitstempel`. Ausnahme im Sync-Pfad: bei Gleichstand gilt der Server-Stand.
+    - Entscheidungsmodell: Die Reihenfolge vergibt der Server. Jeder Datensatz hat eine Server-Version
+      (`version`, +1 je angenommener Änderung, auch beim Löschen). Jede Änderung nennt die `baseVersion`,
+      auf der sie aufbaut (0 = neuer Datensatz). Passt sie zum Server-Stand, wird sie übernommen; sonst
+      ist es ein Konflikt (`conflict`): Der Server-Stand bleibt maßgeblich und kommt in der Antwort zurück.
+      Zeitstempel des Clients (`updatedAt`, `deletedAt`, `clientTime`) sind nur ein Hinweis für Anzeige
+      und Warnungen und entscheiden nie. (Der Datei-Abgleich der App, `decide` in src/sync/merge.ts,
+      arbeitet ohne Server und entscheidet dort nach Zeit; das ist ein anderer Weg.)
     - Fehler als Problem Details (RFC 9457, `application/problem+json`).
     - Der Server setzt den Mandanten aus dem Token, nie aus Anfragedaten.
 servers:
@@ -239,9 +243,12 @@ paths:
       operationId: syncPush
       summary: Lokale Änderungen senden
       description: |
-        Bis zu 100 Änderungen je Aufruf. Jede Änderung wird einzeln nach der Konfliktregel entschieden.
+        Bis zu 100 Änderungen je Aufruf. Jede Änderung wird einzeln anhand von `baseVersion` und Server-Version
+        entschieden (siehe Grundregeln) und gegen die Rechte der Rolle geprüft: Schreibrecht für den bestehenden
+        Datensatz und für die Ziel-Baustelle, beim Löschen zusätzlich das Löschrecht (Baustellen löschen nur der
+        Inhaber; Mitarbeiter nur eigene Einträge). Fehlendes Recht ergibt `rejected` mit Grund `forbidden`.
         Idempotent: Der Header `Idempotency-Key` und `batchId` im Body sind dieselbe UUID; der Server liefert
-        bei Wiederholung mindestens 24 Stunden dieselbe Antwort. Verlorene Konflikte sind kein Fehler,
+        bei Wiederholung mindestens 24 Stunden dieselbe Antwort. Konflikte sind kein Fehler,
         sie stehen im Ergebnis je Änderung.
       parameters:
         - name: Idempotency-Key
@@ -325,7 +332,9 @@ paths:
       operationId: requestUpload
       summary: Signierte Upload-URL(s) für einen Blob holen oder Upload fortsetzen
       description: |
-        Idempotent je `blobId`. Legt die Blob-Metadaten mit Status `pending` an. Bis 8 MB: eine URL (`single`);
+        Idempotent je `blobId`. Prüft vor der Ausstellung das Schreibrecht der Rolle auf die Baustelle `projectId`
+        (zugewiesen, nicht gesperrt) und dass `blobId` keinem Blob eines anderen Betriebs oder einer fremden
+        Baustelle gehört; sonst 403. Legt die Blob-Metadaten mit Status `pending` an. Bis 8 MB: eine URL (`single`);
         größer: Teile à 5 MB (`multipart`). Die URLs sind kurzlebig (siehe `expiresAt`) und nur für den
         Objektschlüssel des eigenen Betriebs gültig. Bei Wiederholung nach Abbruch enthält die Antwort bei
         `multipart` die bereits vollständig hochgeladenen Teile, so dass nur fehlende Teile nachgeladen werden.
@@ -392,7 +401,10 @@ paths:
       tags: [Dateien]
       operationId: getDownloadUrl
       summary: Kurzlebige signierte Download-URL für einen Blob
-      description: Nur für Blobs, die die Rolle sehen darf (gleiche Rechte wie der zugehörige Datensatz).
+      description: |
+        Nur für Blobs, die die Rolle sehen darf (Leserecht auf die zugehörige Baustelle und Datensatzart; gleiche
+        Rechte wie der Datensatz). Ohne Recht antwortet der Server mit 403, für fremde oder unbekannte Blobs mit 404.
+        Die URL ist kurzlebig und nur für diesen Objektschlüssel gültig.
       parameters:
         - name: blobId
           in: query
@@ -921,10 +933,12 @@ components:
 
     SyncChange:
       type: object
-      required: [table, id, op]
+      required: [table, id, op, baseVersion]
       description: |
-        Eine Änderung. `upsert` trägt den vollen Datensatz in `record` (dessen `updatedAt` zählt).
-        `delete` trägt `deletedAt` (Löschvermerk); `record` entfällt.
+        Eine Änderung. `upsert` trägt den vollen Datensatz in `record`, `delete` entfällt `record`. Beide nennen
+        die `baseVersion`. `updatedAt` im Datensatz und `deletedAt` sind nur Hinweise des Clients. `tenant_id`, Autor
+        und Gerät stammen nie aus dem Body, sondern aus Token und Sitzung; entsprechende Felder werden verworfen.
+        `delete` setzt einen Löschvermerk und entfernt Binärdaten im Objektspeicher; erlaubt nach Rechte-Matrix.
       properties:
         table:
           $ref: '#/components/schemas/SyncTable'
@@ -936,8 +950,13 @@ components:
           enum: [upsert, delete]
         record:
           $ref: '#/components/schemas/SyncRecord'
+        baseVersion:
+          type: integer
+          minimum: 0
+          description: Server-Version, auf der die Änderung aufbaut; 0 für einen neuen Datensatz.
         deletedAt:
           $ref: '#/components/schemas/Millis'
+          description: Nur Hinweis (Anzeige); entscheidet nicht.
       allOf:
         - if:
             properties:
@@ -945,12 +964,6 @@ components:
                 const: upsert
           then:
             required: [record]
-        - if:
-            properties:
-              op:
-                const: delete
-          then:
-            required: [deletedAt]
 
     PushRequest:
       type: object
@@ -982,16 +995,21 @@ components:
           type: string
         status:
           type: string
-          enum: [applied, ignored_older, ignored_deleted, rejected]
+          enum: [applied, conflict, rejected]
           description: |
-            `applied`: übernommen. `ignored_older`: Server hat gleichen oder neueren Stand (bei Gleichstand gilt der Server-Stand).
-            `ignored_deleted`: ein neuerer Löschvermerk gewinnt. `rejected`: Recht oder Validierung fehlgeschlagen.
+            `applied`: übernommen, `version` ist die neue Server-Version. `conflict`: `baseVersion` passt nicht zum
+            Server-Stand (inzwischen geändert oder gelöscht); der Server-Stand bleibt, der Client übernimmt ihn
+            (`serverRecord` bzw. `serverDeleted`). `rejected`: Recht oder Validierung fehlgeschlagen.
+        version:
+          type: integer
+          minimum: 1
+          description: Server-Version nach `applied`, bzw. aktuelle Server-Version bei `conflict`.
         serverRecord:
           $ref: '#/components/schemas/SyncRecord'
-          description: Maßgeblicher Server-Stand bei `ignored_older`; der Client übernimmt ihn.
-        serverDeletedAt:
-          $ref: '#/components/schemas/Millis'
-          description: Löschzeitpunkt bei `ignored_deleted`.
+          description: Maßgeblicher Server-Stand bei `conflict` (Datensatz existiert); der Client übernimmt ihn.
+        serverDeleted:
+          type: boolean
+          description: Bei `conflict`, wenn der Datensatz am Server gelöscht ist; der Client entfernt ihn lokal.
         reason:
           type: string
           enum: [forbidden, invalid, too_large, unknown_project]
@@ -1013,11 +1031,11 @@ components:
         clockSkewMs:
           type: integer
           format: int64
-          description: Geräteuhr minus Serverzeit; ab etwa 5 Minuten warnt die App. Liegen `updatedAt`-Werte weiter in der Zukunft, setzt der Server sie auf die Serverzeit.
+          description: Geräteuhr minus Serverzeit; ab etwa 5 Minuten warnt die App. Nur eine Warnung, die Uhr entscheidet keinen Konflikt. Liegen `updatedAt`-Hinweise weiter in der Zukunft, setzt der Server sie für die Anzeige auf die Serverzeit.
 
     PulledChange:
       type: object
-      required: [table, id, op, seq]
+      required: [table, id, op, seq, version]
       properties:
         table:
           $ref: '#/components/schemas/SyncTable'
@@ -1030,6 +1048,10 @@ components:
           type: integer
           format: int64
           description: Server-Nummer (je Betrieb monoton).
+        version:
+          type: integer
+          minimum: 1
+          description: Server-Version des Datensatzes; der Client merkt sie als `baseVersion` für spätere Änderungen.
         record:
           $ref: '#/components/schemas/SyncRecord'
         deletedAt:
