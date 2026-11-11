@@ -10,7 +10,9 @@ Die Hauptsession hat das Gerüst angelegt (Schema, Vertragstypen, Routen, leere 
 | [C](C-geraeteabgleich.md) | infra-connectivity | Änderungsverfolgung und Zusammenführen (Sync-Grundlage) |
 | [D](D-browser-tests.md) | infra-connectivity | Browser-Tests im Repo und in der CI |
 | [E](E-backend-entwurf.md) | infra-connectivity | Backend-Entwurf und API-Vertrag (nur Dokumente) |
-| danach | security-auditor | Review des zusammengeführten Stands |
+| danach | security-auditor | Review des zusammengeführten Stands (erledigt: kein kritischer/hoher Befund am Code) |
+| [F](F-einspielen-haerten.md) | infra-connectivity | Folge aus dem Review: Einspielen härten |
+| [G](G-datenschutz-ui.md) | ui-designer | Folge aus dem Review: Datenschutz-Hinweise, Alle Daten löschen, Notausgang, CSP |
 
 ## Für alle Aufträge gilt
 

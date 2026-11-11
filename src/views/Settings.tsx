@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, type Profil } from '../db';
 import { createBackup, restoreBackup, shareOrDownload } from '../lib/export';
-import type { MergeResult } from '../sync/merge';
+import { formatMergeResult, type MergeResult } from '../sync/merge';
 import { fmtDate, isoDate } from '../lib/util';
 import { Field, Header } from '../components/ui';
 
@@ -57,7 +57,7 @@ export default function Settings() {
     try {
       const r: MergeResult = await restoreBackup(f);
       setProfil(undefined); // Profil aus der Sicherung neu laden
-      setMsg(`Sicherung zusammengeführt: ${r.neu} neu, ${r.aktualisiert} aktualisiert, ${r.geloescht} gelöscht, ${r.behalten} unverändert.`);
+      setMsg(`Sicherung zusammengeführt: ${formatMergeResult(r)}.`);
     } catch (err) {
       setMsg('Einspielen fehlgeschlagen: ' + (err as Error).message);
     }

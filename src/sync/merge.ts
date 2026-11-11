@@ -28,6 +28,18 @@ export interface MergeResult {
   behalten: number;
   /** lokal gelöscht, weil die Sicherung einen neueren Löschvermerk enthält */
   geloescht: number;
+  /** aus der Sicherung nicht übernommen, weil ungültig (falsche Typen, fehlende Pflichtfelder) */
+  verworfen: number;
+  /** Zeitstempel, die in der Zukunft lagen und auf „jetzt“ begrenzt wurden */
+  korrigiert: number;
+}
+
+/** Ergebnis bzw. Vorschau in einem Satz, für Rückfrage und Erfolgsmeldung. */
+export function formatMergeResult(r: MergeResult): string {
+  const teile = [`${r.neu} neu`, `${r.aktualisiert} aktualisiert`, `${r.geloescht} gelöscht`, `${r.behalten} unverändert`];
+  if (r.verworfen) teile.push(`${r.verworfen} ungültig und übersprungen`);
+  if (r.korrigiert) teile.push(`${r.korrigiert} Zeitstempel korrigiert`);
+  return teile.join(', ');
 }
 
 type Rec = Record<string, unknown>;
@@ -69,7 +81,7 @@ export interface MergeOptions {
 export async function mergeTables(tables: Record<string, Rec[]>, opts: MergeOptions = {}): Promise<MergeResult> {
   const { db } = await import('../db'); // erst hier, damit decide() ohne Datenbank testbar bleibt
   const decode = opts.decode ?? ((r: Rec) => r);
-  const result: MergeResult = { neu: 0, aktualisiert: 0, behalten: 0, geloescht: 0 };
+  const result: MergeResult = { neu: 0, aktualisiert: 0, behalten: 0, geloescht: 0, verworfen: 0, korrigiert: 0 };
 
   const incomingTombs = new Map<string, number>();
   for (const t of tables.tombstones ?? []) {

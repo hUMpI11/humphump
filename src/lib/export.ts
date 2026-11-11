@@ -82,6 +82,19 @@ export async function createBackup(): Promise<Blob> {
 
 const TOMBSTONE_MAX_AGE = 180 * 24 * 3600 * 1000;
 
+/** Zweistufiges Einspielen: erst prüfen und zeigen, was passieren würde, dann anwenden. */
+export interface RestorePlan {
+  /** Was das Einspielen bewirken würde – ohne etwas zu verändern. */
+  vorschau: MergeResult;
+  /** Führt das Zusammenführen aus. Schreibt entweder alles oder nichts. */
+  anwenden(): Promise<MergeResult>;
+}
+
+// GERÜST – wird von Auftrag F implementiert (Vorschau rechnen, Datei vorab vollständig prüfen).
+export async function planRestore(file: Blob): Promise<RestorePlan> {
+  return { vorschau: { neu: 0, aktualisiert: 0, behalten: 0, geloescht: 0, verworfen: 0, korrigiert: 0 }, anwenden: () => restoreBackup(file) };
+}
+
 /**
  * Spielt eine Sicherung ein und führt sie je Datensatz mit dem lokalen Stand zusammen (siehe src/sync/merge.ts).
  * Sicherungen der Version 1 (ohne tombstones/protocols/updatedAt) funktionieren; fehlende Tabellen zählen als leer.
