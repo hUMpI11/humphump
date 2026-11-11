@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, type Profil } from '../db';
 import { createBackup, restoreBackup, shareOrDownload } from '../lib/export';
+import type { MergeResult } from '../sync/merge';
 import { fmtDate, isoDate } from '../lib/util';
 import { Field, Header } from '../components/ui';
 
@@ -51,12 +52,12 @@ export default function Settings() {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
-    if (!window.confirm('Sicherung einspielen? Vorhandene Einträge bleiben erhalten; gleiche Einträge werden mit dem Stand der Sicherung überschrieben.')) return;
+    if (!window.confirm('Sicherung einspielen? Sie wird mit deinen Daten zusammengeführt: Je Eintrag gilt der neuere Stand, Löschungen aus der Sicherung werden übernommen, nichts Neueres geht verloren.')) return;
     setBusy(true);
     try {
-      const n = await restoreBackup(f);
+      const r: MergeResult = await restoreBackup(f);
       setProfil(undefined); // Profil aus der Sicherung neu laden
-      setMsg(`Sicherung eingespielt (${n} Datensätze).`);
+      setMsg(`Sicherung zusammengeführt: ${r.neu} neu, ${r.aktualisiert} aktualisiert, ${r.geloescht} gelöscht, ${r.behalten} unverändert.`);
     } catch (err) {
       setMsg('Einspielen fehlgeschlagen: ' + (err as Error).message);
     }
@@ -89,8 +90,8 @@ export default function Settings() {
         <section className="card block">
           <h2>Datensicherung</h2>
           <p className="warnbox">
-            <strong>Wichtig:</strong> Alle Daten liegen nur auf diesem Gerät. Es gibt keine Cloud und keinen Abgleich zwischen iPhone und iPad. Geht das Gerät verloren oder werden die
-            Website-Daten gelöscht, sind die Daten weg. Sichere regelmäßig – z. B. in „Dateien“/iCloud Drive.
+            <strong>Wichtig:</strong> Alle Daten liegen nur auf diesem Gerät. Es gibt keine Cloud. Geht das Gerät verloren oder werden die Website-Daten gelöscht, sind die Daten weg.
+            Sichere regelmäßig – z. B. in „Dateien“/iCloud Drive. Beim Einspielen wird die Sicherung mit den vorhandenen Daten zusammengeführt.
           </p>
           <p className="muted">Letzte Sicherung: {lastBackup ? fmtDate(lastBackup) : 'noch nie'}</p>
           <div className="button-col">
@@ -109,6 +110,19 @@ export default function Settings() {
               {storage.persisted ? 'aktiv' : 'nicht zugesichert'}
             </p>
           )}
+        </section>
+
+        <section className="card block">
+          <h2>iPhone ↔ iPad abgleichen</h2>
+          <ol className="steps">
+            <li>Auf dem ersten Gerät <strong>„Sicherung erstellen“</strong> und die Datei in „Dateien“/iCloud Drive ablegen oder per AirDrop senden.</li>
+            <li>Auf dem zweiten Gerät <strong>„Sicherung einspielen“</strong> und die Datei wählen. Neue und neuere Einträge werden übernommen, Löschungen wandern mit.</li>
+            <li>Danach dasselbe in die andere Richtung, damit beide Geräte denselben Stand haben.</li>
+          </ol>
+          <p className="muted">
+            Grenzen: Die Uhren beider Geräte müssen stimmen (Datum und Uhrzeit automatisch). Zusammengeführt wird je Eintrag, nicht je Feld: Wurde derselbe Eintrag auf beiden Geräten
+            geändert, gewinnt der spätere Stand komplett.
+          </p>
         </section>
 
         <section className="card block">
