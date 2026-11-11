@@ -56,7 +56,7 @@ Die Browser-Tests (`e2e/*.spec.ts`) bauen die App und starten sie selbst auf Por
 
 Die App braucht **HTTPS** (sonst kein Offline-Betrieb und keine Installation). Der Ordner `dist/` kann auf jedem statischen Webspace liegen.
 
-Mit GitHub Pages: Der Workflow `.github/workflows/deploy.yml` baut und veröffentlicht bei jedem Push auf `main`. Einmalig nötig: Repository → *Settings → Pages → Source: „GitHub Actions“*. Bei einem privaten Repository setzt Pages einen kostenpflichtigen GitHub-Plan voraus; die veröffentlichte Seite ist dann trotzdem öffentlich erreichbar (die erfassten Daten nicht – die bleiben auf dem Gerät).
+Mit GitHub Pages: Die App ist unter https://humpi11.github.io/humphump/ veröffentlicht. Der Workflow `.github/workflows/deploy.yml` baut, testet und veröffentlicht bei jedem Push auf `main`. Voraussetzungen im Repo: Pages-Quelle „GitHub Actions“, und `main` muss in der Umgebung `github-pages` als Deployment-Branch erlaubt sein (Settings → Environments). Für private Repos setzt Pages einen kostenpflichtigen GitHub-Plan voraus; dieses Repo ist deshalb öffentlich. Die erfassten Daten bleiben trotzdem nur auf dem Gerät.
 
 ## Aufbau
 

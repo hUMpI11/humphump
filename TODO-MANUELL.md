@@ -24,7 +24,7 @@ Hier steht, was nur ein Mensch entscheiden oder erledigen kann (`CLAUDE.md`, Reg
 
 ## Manuelle Schritte
 
-1. **GitHub Pages einschalten:** Repository → Settings → Pages → Source „GitHub Actions“. Der Workflow veröffentlicht nur bei Push auf `main`.
+1. ~~GitHub Pages einschalten~~ – erledigt: Das Repo ist öffentlich, `main` ist Standard-Branch und in der Pages-Umgebung freigegeben. Die App liegt unter https://humpi11.github.io/humphump/ und wird bei jedem Push auf `main` gebaut, getestet und veröffentlicht.
 2. **Test auf echten Geräten** (iPhone und iPad, Safari): Kamera, Apple Pencil, Teilen-Dialog, Drucken/PDF, Installation auf dem Home-Bildschirm, Verhalten bei vollem Speicher.
 3. **Uhrzeit der Geräte** auf „automatisch“ lassen – der Abgleich entscheidet nach Zeitstempel.
 4. **Abgleich iPhone ↔ iPad auf echten Geräten ausprobieren** (Sicherung erstellen, per AirDrop/Dateien übertragen, einspielen), auch mit vielen Fotos: Die Datei wird als Ganzes eingelesen, das ist mit großen Sicherungen ungetestet.
