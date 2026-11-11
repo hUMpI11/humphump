@@ -1,4 +1,5 @@
 import { db, TABLES } from '../db';
+import { mergeTables, type MergeResult } from '../sync/merge';
 
 /** CSV mit Semikolon + BOM, damit deutsches Excel es direkt richtig öffnet. */
 export function toCsv(rows: (string | number | boolean)[][]): string {
@@ -79,20 +80,24 @@ export async function createBackup(): Promise<Blob> {
   return new Blob(parts, { type: 'application/json' });
 }
 
-/** Spielt ein Backup ein. Vorhandene Datensätze mit gleicher id werden überschrieben, sonst wird ergänzt. */
-export async function restoreBackup(file: Blob): Promise<number> {
+const TOMBSTONE_MAX_AGE = 180 * 24 * 3600 * 1000;
+
+/**
+ * Spielt eine Sicherung ein und führt sie je Datensatz mit dem lokalen Stand zusammen (siehe src/sync/merge.ts).
+ * Sicherungen der Version 1 (ohne tombstones/protocols/updatedAt) funktionieren; fehlende Tabellen zählen als leer.
+ */
+export async function restoreBackup(file: Blob): Promise<MergeResult> {
   const json = JSON.parse(await file.text()) as { format?: string; tables?: Record<string, Json[]> };
   if (json.format !== BACKUP_FORMAT || !json.tables) throw new Error('Das ist keine gültige Baustellenbuch-Sicherung.');
-  let count = 0;
+  const tables: Record<string, Json[]> = {};
   for (const name of TABLES) {
     const rows = json.tables[name];
-    if (!Array.isArray(rows)) continue;
-    // Timer nicht übernehmen – der gehört zum Gerät, auf dem er lief.
-    const decoded = rows.map(decodeRecord).filter((r) => !(name === 'settings' && r.key === 'timer'));
-    await db.table(name).bulkPut(decoded);
-    count += decoded.length;
+    if (Array.isArray(rows)) tables[name] = rows;
   }
-  return count;
+  const result = await mergeTables(tables, { decode: decodeRecord });
+  // Alte Löschvermerke aufräumen: nach so langer Zeit ist ein Gerät mit altem Stand nicht mehr zu erwarten.
+  await db.tombstones.where('key').above('').filter((t) => t.deletedAt < Date.now() - TOMBSTONE_MAX_AGE).delete();
+  return result;
 }
 
 /** Text über den Teilen-Dialog weitergeben (WhatsApp, Mail …), ersatzweise in die Zwischenablage. */
