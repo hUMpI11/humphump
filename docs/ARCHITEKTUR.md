@@ -56,7 +56,10 @@ Schemaänderungen: nur additiv über eine neue `db.version(n)`. Neue fachliche T
 - `tracking.ts` stempelt `updatedAt` bei jedem Anlegen/Ändern in `SYNC_TABLES` und schreibt beim Löschen einen `tombstone`.
 - `merge.ts` entscheidet je Datensatz (`decide`): neuerer Stand gewinnt; ein Löschvermerk gewinnt, wenn er neuer ist als der Datensatz; bei Gleichstand bleibt der lokale.
 - Beim Einspielen laufen die Hooks nicht (`withoutTracking`), damit Zeitstempel erhalten bleiben.
-- Grenzen: Uhren der Geräte müssen ungefähr stimmen; zusammengeführt wird je Datensatz, nicht je Feld.
+- `blobs` haben keinen eigenen Zeitstempel und folgen ihrem Foto bzw. ihrer Skizze (gleiche id, Skizzenhintergrund `id:bg`).
+- Datensätze, deren Baustelle lokal nicht (mehr) existiert, werden nicht angelegt.
+- Löschvermerke werden nach Abschluss der löschenden Transaktion in einer eigenen geschrieben; so kann ein Vermerk das Löschen nie verhindern. Vermerke älter als 180 Tage werden beim Einspielen entfernt.
+- Grenzen: Uhren der Geräte müssen ungefähr stimmen; zusammengeführt wird je Datensatz, nicht je Feld; verwaiste Einträge nach gegenläufigem Löschen werden nicht bereinigt; die Sicherungsdatei wird als Ganzes eingelesen.
 
 ## Navigation
 

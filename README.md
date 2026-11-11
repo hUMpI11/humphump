@@ -19,13 +19,15 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 - **Fotos** direkt aus der Kamera oder mehrere aus der Mediathek, automatisch verkleinert (max. 1600 px), mit Beschreibung
 - **Skizzen**: Stift, Linie, Rechteck, Text/Maß, Radierer, Rückgängig; frei oder auf einem Foto; Apple Pencil mit Handballen-Schutz
 - **Bericht** je Baustelle und Zeitraum als Druck/PDF, wahlweise als **Regiebericht** (nur Zusatzleistungen), mit **Unterschrift des Kunden auf dem Display**, als Text zum Teilen (WhatsApp, Mail), Stunden und Material als CSV (Excel-tauglich)
-- **Datensicherung** als Datei (Export/Import)
+- **Protokolle je Gewerk**: Prüfprotokolle, Checklisten und Aufmaße aus Vorlagen (u. a. Datenpunktprüfung, Druckprobe, Luftmengenmessung, Abnahme), mit berechneten Spalten und Summen, automatisch gespeichert, im Bericht druckbar
+- **Datensicherung und Geräteabgleich** als Datei: Einspielen führt zusammen (neuerer Stand gewinnt, Löschungen wandern mit) – so lassen sich iPhone und iPad abgleichen
 - **Fehlbedienung abgefangen**: Doppeltipp auf „Speichern“ erzeugt keinen doppelten Eintrag; ein über Nacht vergessener Timer fragt nach dem echten Ende statt eines zu raten; ein voller Gerätespeicher wird gemeldet
 - **iPad**: zweispaltig (Baustellenliste + Detail), Skizzen im Vollbild; Hell-/Dunkelmodus
 
 ## Bekannte Grenzen – bitte lesen
 
-- **Daten liegen nur auf dem jeweiligen Gerät** (IndexedDB im Browser). Kein Abgleich zwischen iPhone und iPad, keine Mehrbenutzer-Funktion, keine Cloud. Übertragung nur über Sicherung erstellen → auf dem anderen Gerät einspielen.
+- **Daten liegen nur auf dem jeweiligen Gerät** (IndexedDB im Browser). Kein automatischer Abgleich, keine Mehrbenutzer-Funktion, keine Cloud. Abgleich zwischen iPhone und iPad von Hand über die Sicherungsdatei; die Uhren beider Geräte müssen stimmen.
+- **Protokollvorlagen sind Arbeitshilfen**, keine normkonformen Prüfprotokolle, und fachlich nicht freigegeben (siehe `TODO-MANUELL.md`).
 - **Datenverlust ist möglich**: Wird die App vom Home-Bildschirm gelöscht oder werden in iOS die Website-Daten gelöscht, sind die Daten weg. Regelmäßig sichern (Einstellungen → Sicherung erstellen).
 - **Nicht auf echten Geräten getestet.** Geprüft wurde in Chromium mit iPhone-/iPad-Bildschirmgrößen. Kamera, Apple Pencil, Teilen-Dialog, Drucken und Speicherverhalten in Safari/iOS müssen auf echter Hardware nachgeprüft werden.
 - Skizzen haben kein Zoomen/Verschieben; die Zeichenfläche wird eingepasst.
