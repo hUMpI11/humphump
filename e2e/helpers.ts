@@ -156,9 +156,17 @@ export async function tabelle(page: Page, name: string): Promise<any[]> {
         const q = indexedDB.open('baustellenbuch');
         q.onerror = () => fehler(q.error);
         q.onsuccess = () => {
-          const g = q.result.transaction(n).objectStore(n).getAll();
-          g.onsuccess = () => fertig(g.result);
-          g.onerror = () => fehler(g.error);
+          // Verbindung wieder schließen: Eine offene Verbindung blockiert sonst „Alle Daten löschen“ (db.delete()).
+          const db = q.result;
+          const g = db.transaction(n).objectStore(n).getAll();
+          g.onsuccess = () => {
+            db.close();
+            fertig(g.result);
+          };
+          g.onerror = () => {
+            db.close();
+            fehler(g.error);
+          };
         };
       }),
     name,

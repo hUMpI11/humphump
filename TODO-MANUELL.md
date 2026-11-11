@@ -17,8 +17,10 @@ Hier steht, was nur ein Mensch entscheiden oder erledigen kann (`CLAUDE.md`, Reg
 6. **Rechtliches vor einem Betrieb mit Mitarbeitern:** Auftragsverarbeitung, Information der Beschäftigten bei zentraler Arbeitszeiterfassung, Aufbewahrungs- und Löschfristen – mit Steuerberater bzw. Rechtsbeistand klären. Die Aussagen dazu im Entwurf sind Annahmen.
 
 7. **Sicherungsdatei mit Passwort verschlüsseln?** Die Datei enthält Kunden- und Mitarbeiterdaten im Klartext (die App weist darauf hin). Verschlüsselung wäre machbar, aber: Passwort vergessen heißt Sicherung unbrauchbar. Bis zur Entscheidung gilt die Regel „nur an eigene Geräte, an sicherem Ort ablegen, alte Dateien löschen“.
-8. **Grenzwerte beim Einspielen** (`src/sync/validate.ts`, `src/lib/export.ts`): 500 MB je Datei, 40 MB je Bild, Zeitstempel höchstens 24 h nach Erstellung der Sicherung. Bei Bedarf an den echten Umfang anpassen.
-9. **Updates der App:** Eine neue Version wird im Hintergrund geladen und beim nächsten Start aktiv, ohne Rückfrage. Alternative wäre ein Hinweis „Neue Version – jetzt laden?“.
+8. **Grenzwerte beim Einspielen** (`src/sync/validate.ts`, `src/lib/export.ts`): 500 MB je Datei, 40 MB je Bild, Zeitstempel höchstens 5 Minuten nach Erstellung der Sicherung. 500 MB sind für ein iPhone vermutlich zu viel – auf einem echten Gerät ausprobieren. Bei Bedarf an den echten Umfang anpassen.
+9. **Datenschutzinformation:** Beim Antippen der Adresse geht sie an Apple Karten. Falls die App an andere weitergegeben wird, gehört das (wie die lokale Speicherung insgesamt) in eine Datenschutzinformation.
+10. **Konfliktmodell für ein späteres Backend:** Der Entwurf nimmt an: „zuerst am Server angekommen gewinnt, der Konflikt wird angezeigt“, dazu eine Rechte-Matrix je Tabelle. Beides sind Annahmen (`docs/BACKEND.md`, Entscheidungen 6 und 7).
+11. **Updates der App:** Eine neue Version wird im Hintergrund geladen und beim nächsten Start aktiv, ohne Rückfrage. Alternative wäre ein Hinweis „Neue Version – jetzt laden?“.
 
 ## Manuelle Schritte
 

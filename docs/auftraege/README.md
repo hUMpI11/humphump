@@ -1,6 +1,6 @@
 # Aufträge an die Subagents (Ausbaustufe 0.2)
 
-Stand: A–G sind umgesetzt, zusammengeführt und getestet. Die Dateien bleiben als Nachweis, was beauftragt war.
+Stand: A–H sind umgesetzt, zusammengeführt und getestet. Die Dateien bleiben als Nachweis, was beauftragt war.
 
 Jede Datei ist ein vollständiger Auftrag nach `CLAUDE.md` Regel 1: Ziel, betroffene Dateien, Akzeptanzkriterien, Tabus.
 Die Hauptsession hat das Gerüst angelegt (Schema, Vertragstypen, Routen, leere Module) und führt die Ergebnisse zusammen.
@@ -15,6 +15,7 @@ Die Hauptsession hat das Gerüst angelegt (Schema, Vertragstypen, Routen, leere 
 | danach | security-auditor | Review des zusammengeführten Stands (erledigt: kein kritischer/hoher Befund am Code) |
 | [F](F-einspielen-haerten.md) | infra-connectivity | Folge aus dem Review: Einspielen härten |
 | [G](G-datenschutz-ui.md) | ui-designer | Folge aus dem Review: Datenschutz-Hinweise, Alle Daten löschen, Notausgang, CSP |
+| [H](H-nachpruefung.md) | infra-connectivity | Restpunkte aus der Nachprüfung (kein kritischer/hoher Befund offen) |
 
 ## Für alle Aufträge gilt
 
