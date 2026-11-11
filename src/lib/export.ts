@@ -110,7 +110,7 @@ export async function planRestore(file: Blob): Promise<RestorePlan> {
   if (file.size > MAX_BACKUP_BYTES) {
     throw new Error(`Die Datei ist zu groß (${Math.round(file.size / 1024 / 1024)} MB, erlaubt sind 500 MB). Sie kann auf diesem Gerät nicht sicher eingelesen werden.`);
   }
-  let json: { format?: unknown; tables?: unknown };
+  let json: { format?: unknown; tables?: unknown; erstellt?: unknown };
   try {
     json = JSON.parse(await file.text());
   } catch {
@@ -125,7 +125,12 @@ export async function planRestore(file: Blob): Promise<RestorePlan> {
     const rows = (tabellen as Record<string, unknown>)[name];
     if (Array.isArray(rows)) tables[name] = rows.filter((r): r is Json => !!r && typeof r === 'object' && !Array.isArray(r));
   }
-  const prepared = prepareMerge(tables, { decode: decodeRecord });
+  // Nichts in der Datei kann jünger sein als die Datei selbst. Zukunfts-Zeitstempel werden deshalb auf den
+  // Erstellzeitpunkt der Sicherung begrenzt (nicht auf „jetzt“) – sonst würde dieselbe Datei bei jedem
+  // erneuten Einspielen wieder gegen inzwischen geänderte lokale Daten gewinnen.
+  const erstellt = typeof json.erstellt === 'string' ? Date.parse(json.erstellt) : NaN;
+  const bezug = Number.isFinite(erstellt) && erstellt > 0 ? Math.min(erstellt, Date.now()) : Date.now();
+  const prepared = prepareMerge(tables, { decode: decodeRecord, now: bezug });
   const vorschau = await runPrepared(prepared, { dryRun: true });
   return {
     vorschau,

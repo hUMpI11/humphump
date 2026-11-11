@@ -160,4 +160,20 @@ test.describe('Einspielen: kaputte und präparierte Sicherungen', () => {
       await kontext.close();
     }
   });
+
+  test('Zukunfts-Löschvermerk aus einer älteren Datei gewinnt nicht gegen neuere lokale Daten – auch nicht beim erneuten Einspielen', async ({ page }) => {
+    // Die Datei ist „gestern“ entstanden; nichts darin kann jünger sein als sie selbst.
+    const gestern = new Date(Date.now() - 24 * 3_600_000).toISOString();
+    await baustelleAnlegen(page, { name: 'Bad Huber', gewerke: ['Sanitär'] });
+    const [projekt] = await tabelle(page, 'projects');
+    const datei = join(ordner(), 'zukunft.json');
+    writeFileSync(datei, JSON.stringify({
+      format: 'baustellenbuch-backup', version: 1, erstellt: gestern,
+      tables: { tombstones: [{ key: `projects:${projekt.id}`, table: 'projects', id: projekt.id, deletedAt: 1e15 }] },
+    }));
+    for (let i = 0; i < 2; i++) {
+      await einspielen(page, datei);
+      expect(await tabelle(page, 'projects')).toHaveLength(1);
+    }
+  });
 });

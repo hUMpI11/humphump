@@ -59,6 +59,9 @@ Schemaänderungen: nur additiv über eine neue `db.version(n)`. Neue fachliche T
 - `blobs` haben keinen eigenen Zeitstempel und folgen ihrem Foto bzw. ihrer Skizze (gleiche id, Skizzenhintergrund `id:bg`).
 - Datensätze, deren Baustelle lokal nicht (mehr) existiert, werden nicht angelegt.
 - Löschvermerke werden nach Abschluss der löschenden Transaktion in einer eigenen geschrieben; so kann ein Vermerk das Löschen nie verhindern. Vermerke älter als 180 Tage werden beim Einspielen entfernt.
+- Einspielen ist alles oder nichts: Die Sicherung wird vollständig gelesen, je Zeile geprüft (`src/sync/validate.ts`) und dekodiert, danach in einer Transaktion geschrieben. Ungültige Zeilen werden übersprungen und gezählt. Dateien über 500 MB werden abgelehnt; der Speicherbedarf liegt beim etwa 1,5- bis 2-Fachen der Dateigröße.
+- Zeitstempel, die mehr als 24 Stunden nach dem Erstellzeitpunkt der Sicherung liegen, werden auf diesen begrenzt. So kann eine falsch gestellte Uhr oder eine präparierte Datei den Abgleich nicht dauerhaft gewinnen.
+- Vor dem Schreiben liefert `planRestore` eine Vorschau (neu, aktualisiert, gelöscht), die der Nutzer bestätigt.
 - Grenzen: Uhren der Geräte müssen ungefähr stimmen; zusammengeführt wird je Datensatz, nicht je Feld; verwaiste Einträge nach gegenläufigem Löschen werden nicht bereinigt; die Sicherungsdatei wird als Ganzes eingelesen.
 
 ## Navigation

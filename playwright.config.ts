@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// E2E_PORT erlaubt parallele Läufe (mehrere Arbeitsbäume), ohne sich den Vorschau-Server zu teilen.
+const PORT = Number(process.env.E2E_PORT) || 4173;
 // Lokal liegt Chromium ggf. nicht am Standardort: PW_CHROMIUM_PATH=/pfad/zu/chrome setzen.
 // In der CI bleibt die Variable leer; dort installiert `playwright install` den Browser.
 const executablePath = process.env.PW_CHROMIUM_PATH || undefined;
