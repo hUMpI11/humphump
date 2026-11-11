@@ -330,3 +330,10 @@ input[type='search'] { border-radius: 12px; }
   .report-images figure { display: inline-block; width: 48.5%; margin: 0 0.5% 3mm; vertical-align: top; }
   .report-images img { max-height: 85mm; }
 }
+
+/* Datenschutz / Gefahrenbereich */
+.danger-zone { border: 2px solid var(--danger); }
+.danger-zone h2 { color: var(--danger); }
+.btn.danger-solid { background: var(--danger); color: #fff; min-height: 48px; }
+.crash .button-col { margin-top: 12px; }
+.crash a.btn { text-decoration: none; color: inherit; }
