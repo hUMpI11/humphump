@@ -43,7 +43,10 @@ npm run dev      # Entwicklungsserver
 npm test         # Unit-Tests
 npm run build    # Typprüfung + Produktions-Build nach dist/
 npm run preview  # gebauten Stand lokal ansehen
+npm run e2e      # Browser-Tests (Playwright, iPhone- und iPad-Format)
 ```
+
+Die Browser-Tests (`e2e/*.spec.ts`) bauen die App und starten sie selbst auf Port 4173; jeder Test läuft mit leerer Datenbank. Einmalig `npx playwright install chromium` (in der CI automatisch). Liegt Chromium an einem anderen Ort, den Pfad in `PW_CHROMIUM_PATH` angeben. Einzelne Datei: `npm run e2e -- e2e/bericht.spec.ts`; Fehlerbericht: `npx playwright show-report`.
 
 ## Auf das iPhone bringen
 
