@@ -16,9 +16,16 @@ Hier steht, was nur ein Mensch entscheiden oder erledigen kann (`CLAUDE.md`, Reg
 5. **Backend-Fragen im Einzelnen.** `docs/BACKEND.md`, Abschnitt 10, listet 17 Entscheidungen mit Optionen und Empfehlung (u. a. Eigenbau oder Fertigdienst, Hosting-Anbieter, Anmeldeverfahren, Rechte der Mitarbeiter, Aufbewahrungsfristen, Budget). Empfehlung des Entwurfs: vorerst kein Backend, solange nur eigene Geräte abgeglichen werden.
 6. **Rechtliches vor einem Betrieb mit Mitarbeitern:** Auftragsverarbeitung, Information der Beschäftigten bei zentraler Arbeitszeiterfassung, Aufbewahrungs- und Löschfristen – mit Steuerberater bzw. Rechtsbeistand klären. Die Aussagen dazu im Entwurf sind Annahmen.
 
+7. **Sicherungsdatei mit Passwort verschlüsseln?** Die Datei enthält Kunden- und Mitarbeiterdaten im Klartext (die App weist darauf hin). Verschlüsselung wäre machbar, aber: Passwort vergessen heißt Sicherung unbrauchbar. Bis zur Entscheidung gilt die Regel „nur an eigene Geräte, an sicherem Ort ablegen, alte Dateien löschen“.
+8. **Grenzwerte beim Einspielen** (`src/sync/validate.ts`, `src/lib/export.ts`): 500 MB je Datei, 40 MB je Bild, Zeitstempel höchstens 24 h nach Erstellung der Sicherung. Bei Bedarf an den echten Umfang anpassen.
+9. **Updates der App:** Eine neue Version wird im Hintergrund geladen und beim nächsten Start aktiv, ohne Rückfrage. Alternative wäre ein Hinweis „Neue Version – jetzt laden?“.
+
 ## Manuelle Schritte
 
 1. **GitHub Pages einschalten:** Repository → Settings → Pages → Source „GitHub Actions“. Der Workflow veröffentlicht nur bei Push auf `main`.
 2. **Test auf echten Geräten** (iPhone und iPad, Safari): Kamera, Apple Pencil, Teilen-Dialog, Drucken/PDF, Installation auf dem Home-Bildschirm, Verhalten bei vollem Speicher.
 3. **Uhrzeit der Geräte** auf „automatisch“ lassen – der Abgleich entscheidet nach Zeitstempel.
 4. **Abgleich iPhone ↔ iPad auf echten Geräten ausprobieren** (Sicherung erstellen, per AirDrop/Dateien übertragen, einspielen), auch mit vielen Fotos: Die Datei wird als Ganzes eingelesen, das ist mit großen Sicherungen ungetestet.
+5. **GitHub absichern:** Branch-Schutz für `main`, Dependabot und Secret-Scanning einschalten, Zwei-Faktor-Anmeldung für alle mit Schreibrecht, Workflows aus Forks nur nach Freigabe ausführen. Die Actions im Workflow sind per Versions-Tag eingebunden, nicht per Commit-SHA; Dependabot kann das übernehmen.
+6. **Geräte absichern:** Sperrcode auf iPhone und iPad (damit sind die Daten auf dem Gerät verschlüsselt), „Wo ist?“ aktiv.
+7. **Nach einem Update mit präparierten Dateien gegenprüfen** ist automatisiert (`e2e/einspielen-haertung.spec.ts`); auf echten Geräten einmal mit einer großen echten Sicherung wiederholen.

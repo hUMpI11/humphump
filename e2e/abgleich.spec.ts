@@ -65,8 +65,11 @@ test.describe('Geräteabgleich per Sicherungsdatei', () => {
       const b1 = join(ordner, 'b1.json');
       await sicherungErstellen(b, b1);
 
-      // A spielt den Stand von B ein: Änderung und Löschung kommen an.
+      // A spielt den Stand von B ein: Änderung und Löschung kommen an – und die Rückfrage kündigt die Löschung vorher an.
+      const rueckfragen: string[] = [];
+      page.on('dialog', (d) => rueckfragen.push(d.message()));
       await einspielen(page, b1);
+      expect(rueckfragen.join('\n')).toMatch(/1 (Eintrag|Einträge)? ?.*gelöscht/);
       expect((await tabelle(page, 'notes'))[0].titel).toBe('Silikon anthrazit');
       expect((await tabelle(page, 'times')).length).toBe(0);
 

@@ -131,7 +131,8 @@ test.describe('Timer', () => {
     await expect(laeuft(page)).toHaveCount(0);
     // Eigene Tätigkeit wird beim nächsten Mal vorgeschlagen.
     await page.getByRole('button', { name: 'Stunden eintragen' }).click();
-    await expect(page.getByRole('button', { name: 'Sonderwunsch Nische' })).toBeVisible();
+    // Auf das Formular eingrenzen: Die Listenzeile dahinter enthält denselben Text und ist ebenfalls ein Button.
+    await expect(page.locator('.sheet').getByRole('button', { name: 'Sonderwunsch Nische', exact: true })).toBeVisible();
     await abbrechen(page);
   });
 

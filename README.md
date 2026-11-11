@@ -21,6 +21,8 @@ Technisch ist das eine **installierbare Web-App (PWA)**, keine native App aus de
 - **Bericht** je Baustelle und Zeitraum als Druck/PDF, wahlweise als **Regiebericht** (nur Zusatzleistungen), mit **Unterschrift des Kunden auf dem Display**, als Text zum Teilen (WhatsApp, Mail), Stunden und Material als CSV (Excel-tauglich)
 - **Protokolle je Gewerk**: Prüfprotokolle, Checklisten und Aufmaße aus Vorlagen (u. a. Datenpunktprüfung, Druckprobe, Luftmengenmessung, Abnahme), mit berechneten Spalten und Summen, automatisch gespeichert, im Bericht druckbar
 - **Datensicherung und Geräteabgleich** als Datei: Einspielen führt zusammen (neuerer Stand gewinnt, Löschungen wandern mit) – so lassen sich iPhone und iPad abgleichen
+- **Einspielen ist abgesichert**: Vorschau mit Rückfrage (auch für Löschungen), ungültige Einträge werden übersprungen, bei Fehlern bleibt der lokale Stand unverändert
+- **Datenschutz**: Hinweis zum Inhalt der Sicherungsdatei, „Alle Daten auf diesem Gerät löschen“, Notausgang im Fehlerbildschirm (Sicherung erstellen, Einstellungen), Content-Security-Policy
 - **Fehlbedienung abgefangen**: Doppeltipp auf „Speichern“ erzeugt keinen doppelten Eintrag; ein über Nacht vergessener Timer fragt nach dem echten Ende statt eines zu raten; ein voller Gerätespeicher wird gemeldet
 - **iPad**: zweispaltig (Baustellenliste + Detail), Skizzen im Vollbild; Hell-/Dunkelmodus
 

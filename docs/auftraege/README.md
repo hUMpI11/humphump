@@ -1,5 +1,7 @@
 # Aufträge an die Subagents (Ausbaustufe 0.2)
 
+Stand: A–G sind umgesetzt, zusammengeführt und getestet. Die Dateien bleiben als Nachweis, was beauftragt war.
+
 Jede Datei ist ein vollständiger Auftrag nach `CLAUDE.md` Regel 1: Ziel, betroffene Dateien, Akzeptanzkriterien, Tabus.
 Die Hauptsession hat das Gerüst angelegt (Schema, Vertragstypen, Routen, leere Module) und führt die Ergebnisse zusammen.
 
