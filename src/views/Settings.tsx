@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, type Profil } from '../db';
-import { createBackup, restoreBackup, shareOrDownload } from '../lib/export';
-import { formatMergeResult, type MergeResult } from '../sync/merge';
+import { DEFAULT_PROFIL, DEFAULT_RUNDUNG, db, getSetting, setSetting, type Profil } from '../db';
+import { createBackup, planRestore, shareOrDownload } from '../lib/export';
+import { formatMergeResult } from '../sync/merge';
 import { fmtDate, isoDate } from '../lib/util';
 import { Field, Header } from '../components/ui';
 
@@ -35,33 +35,75 @@ export default function Settings() {
     void setSetting('profil', next);
   };
 
-  async function backup() {
+  /** Liefert true, wenn die Sicherung erstellt wurde (oder der Teilen-Dialog durchlaufen ist). */
+  async function backup(): Promise<boolean> {
     setBusy(true);
     setMsg('');
     try {
       const blob = await createBackup();
       await shareOrDownload(`Baustellenbuch_Sicherung_${isoDate()}.json`, blob);
       await setSetting('letzteSicherung', isoDate());
+      setBusy(false);
+      return true;
     } catch (e) {
       setMsg('Sicherung fehlgeschlagen: ' + (e as Error).message);
+      setBusy(false);
+      return false;
     }
-    setBusy(false);
   }
 
   async function restore(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
-    if (!window.confirm('Sicherung einspielen? Sie wird mit deinen Daten zusammengeführt: Je Eintrag gilt der neuere Stand, Löschungen aus der Sicherung werden übernommen, nichts Neueres geht verloren.')) return;
     setBusy(true);
+    setMsg('');
     try {
-      const r: MergeResult = await restoreBackup(f);
+      // Schritt 1: Datei prüfen und Vorschau rechnen – verändert nichts.
+      const plan = await planRestore(f);
+      const v = plan.vorschau;
+      const frage =
+        `Diese Sicherung würde Folgendes bewirken:\n${formatMergeResult(v)}.` +
+        (v.geloescht > 0 ? `\n\nAchtung: ${v.geloescht} ${v.geloescht === 1 ? 'Eintrag wird' : 'Einträge werden'} auf diesem Gerät gelöscht.` : '') +
+        '\n\nJe Eintrag gilt der neuere Stand. Fortfahren?';
+      if (!window.confirm(frage)) {
+        setMsg('Einspielen abgebrochen. Es wurde nichts verändert.');
+        setBusy(false);
+        return;
+      }
+      // Schritt 2: anwenden.
+      const r = await plan.anwenden();
       setProfil(undefined); // Profil aus der Sicherung neu laden
       setMsg(`Sicherung zusammengeführt: ${formatMergeResult(r)}.`);
     } catch (err) {
-      setMsg('Einspielen fehlgeschlagen: ' + (err as Error).message);
+      setMsg('Einspielen fehlgeschlagen: ' + (err as Error).message + ' Deine Daten auf diesem Gerät sind unverändert.');
     }
     setBusy(false);
+  }
+
+  async function alleLoeschen() {
+    if (!window.confirm('Sicherung erstellen, bevor alles gelöscht wird? „OK“ erstellt jetzt eine Sicherung, „Abbrechen“ überspringt sie.')) {
+      /* bewusst ohne Sicherung weiter */
+    } else if (!(await backup())) {
+      return; // Sicherung fehlgeschlagen: nichts löschen
+    }
+    if (!window.confirm('Wirklich ALLE Daten auf diesem Gerät löschen? Das kann nicht rückgängig gemacht werden.')) return;
+    let n = 0;
+    try {
+      n = await db.projects.count();
+    } catch {
+      /* Zahl nur für die Rückfrage */
+    }
+    if (!window.confirm(`Letzte Rückfrage: ${n} ${n === 1 ? 'Baustelle' : 'Baustellen'} mit allen Stunden, Materialien, Notizen, Fotos, Skizzen, Unterschriften und Protokollen werden endgültig gelöscht. Jetzt löschen?`)) return;
+    setBusy(true);
+    try {
+      await db.delete();
+      window.location.hash = '#/';
+      window.location.reload();
+    } catch (e) {
+      setMsg('Löschen fehlgeschlagen: ' + (e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
@@ -93,9 +135,13 @@ export default function Settings() {
             <strong>Wichtig:</strong> Alle Daten liegen nur auf diesem Gerät. Es gibt keine Cloud. Geht das Gerät verloren oder werden die Website-Daten gelöscht, sind die Daten weg.
             Sichere regelmäßig – z. B. in „Dateien“/iCloud Drive. Beim Einspielen wird die Sicherung mit den vorhandenen Daten zusammengeführt.
           </p>
+          <p className="warnbox">
+            <strong>Vorsicht, vertrauliche Daten:</strong> Die Sicherungsdatei enthält Kunden- und Mitarbeiterdaten (Namen, Adressen, Telefonnummern, Arbeitszeiten, Unterschriften, Fotos){' '}
+            <strong>unverschlüsselt</strong>. Nur an eigene Geräte weitergeben, an einem sicheren Ort ablegen und nicht mehr benötigte Dateien löschen.
+          </p>
           <p className="muted">Letzte Sicherung: {lastBackup ? fmtDate(lastBackup) : 'noch nie'}</p>
           <div className="button-col">
-            <button type="button" className="btn primary" onClick={backup} disabled={busy}>
+            <button type="button" className="btn primary" onClick={() => void backup()} disabled={busy}>
               {busy ? 'Bitte warten …' : 'Sicherung erstellen'}
             </button>
             <button type="button" className="btn" onClick={() => file.current?.click()} disabled={busy}>
@@ -110,6 +156,16 @@ export default function Settings() {
               {storage.persisted ? 'aktiv' : 'nicht zugesichert'}
             </p>
           )}
+        </section>
+
+        <section className="card block danger-zone">
+          <h2>Gefahrenbereich</h2>
+          <p>
+            Löscht alle Baustellen und Einträge auf diesem Gerät vollständig. Sicherungsdateien, die du außerhalb der App abgelegt hast (z. B. in „Dateien“ oder iCloud Drive), bleiben bestehen.
+          </p>
+          <button type="button" className="btn danger-solid" onClick={() => void alleLoeschen()} disabled={busy}>
+            Alle Daten auf diesem Gerät löschen
+          </button>
         </section>
 
         <section className="card block">
