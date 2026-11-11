@@ -68,13 +68,8 @@ Hash-Routing (`src/lib/router.ts`), damit die App unter jedem Pfad und offline l
 - **Browser** (`npm run e2e`, Playwright/Chromium im iPhone- und iPad-Format): komplette Abläufe gegen `vite preview`.
 - Nicht automatisiert prüfbar: Kamera, Apple Pencil, Teilen-Dialog, Drucken und Speicherverhalten unter Safari/iOS.
 
-## Arbeitspakete dieser Ausbaustufe
+## Arbeitsweise
 
-| Paket | Eigene Dateien | Liefert |
-|---|---|---|
-| A Protokoll-Engine | `src/protocols/calc.ts`, `calc.test.ts`, `ProtocolPrint.tsx`, `protocols.css`, `src/views/ProtocolTab.tsx`, `ProtocolEditor.tsx` | Rechnen, Ausfüllen, Liste, Druck |
-| B Vorlagen | `src/protocols/templates.ts`, `templates.test.ts` | Vorlagen je Gewerk, Konsistenztests |
-| C Geräteabgleich | `src/sync/*`, `src/lib/export.ts`, `src/views/Settings.tsx` | Änderungsverfolgung, Zusammenführen |
-| D Browser-Tests | `e2e/*`, `playwright.config.ts`, `.github/workflows/deploy.yml` | Testsuite im Repo, CI |
+Nach `CLAUDE.md`: Die Hauptsession plant, legt Verträge und Gerüst an, führt zusammen und prüft. Umsetzung liegt bei den Subagents `ui-designer` und `infra-connectivity`; `security-auditor` prüft nach jedem größeren Feature. Die Aufträge dieser Ausbaustufe stehen in `docs/auftraege/`. Offene Entscheidungen stehen in `TODO-MANUELL.md`.
 
-Gemeinsame Dateien (`db.ts`, `router.ts`, `App.tsx`, `ProjectDetail.tsx`, `Report.tsx`, `styles.css`, `types.ts`) sind im Gerüst vorbereitet und werden von den Paketen nicht verändert.
+Gemeinsame Dateien (`db.ts`, `router.ts`, `App.tsx`, `ProjectDetail.tsx`, `Report.tsx`, `styles.css`, `protocols/types.ts`) ändert nur die Hauptsession.
