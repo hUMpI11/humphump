@@ -108,6 +108,8 @@ Besonderheiten:
 | Benutzer einladen/entfernen, Rollen | ja | nein | nein |
 | Betrieb exportieren/löschen | ja | nein | nein |
 
+**Entwurf – Schreibprüfung beim Upsert (nach Security-Review):** Der API-Dienst prüft das Schreibrecht gegen den **bestehenden** Datensatz (gehört er dem Mandanten, darf diese Rolle ihn ändern; bei fremden Stunden z. B. nur Vorarbeiter/Inhaber) **und** gegen das **Ziel** (die `projectId` im Body muss eine dem Benutzer zugewiesene Baustelle des Mandanten sein). Nur den neuen Zustand zu prüfen, würde erlauben, einen fremden Datensatz durch Umhängen auf eine eigene Baustelle zu „übernehmen“, oder umgekehrt Datensätze in eine nicht zugewiesene Baustelle zu schreiben. `tenant_id`, `author_id` und `deviceId` stammen **nie** aus dem Body, sondern aus Token und Sitzung; entsprechende Felder im Body werden verworfen. Das gilt auch für `delete`.
+
 Durchsetzung: Rechte werden **im API-Dienst** geprüft (Push: Schreibrecht je Datensatz; Pull: Filter je Rolle). RLS sichert zusätzlich die Mandantengrenze; die Rollenlogik gehört nicht in RLS. Folge für den Pull: Sieht ein Mitarbeiter fremde Stunden nicht, darf der Server sie **nicht** ausliefern, auch nicht als Löschvermerk-Hülle mit Inhalt. Ändert sich der Rechtekreis einer Person (Zuweisung, Rolle), erhöht der Server deren „Scope-Version“ und beantwortet alte Cursor mit `410 cursor_expired`; das Gerät lädt neu (4.6).
 
 ## 4. Sync-Protokoll
@@ -142,6 +144,10 @@ Aktuelle Zustände müssen vor dem ersten Abgleich einmalig in die `outbox` gele
 - **Uhren** der Geräte müssen ungefähr stimmen (siehe oben).
 - **Löschen gewinnt** gegen gleichzeitig Bearbeitetes nur, wenn der Löschzeitpunkt nicht älter ist als die Bearbeitung.
 - **Kaskade:** Löscht jemand eine Baustelle, schreibt der Client Löschvermerke für alle abhängigen Datensätze (`deleteProject`); der Server löscht abhängige Zeilen bei einem `projects`-Löschvermerk zusätzlich selbst, damit nachträglich eintreffende Alt-Datensätze nicht „zurückkehren“.
+
+**Entwurf – Nachschärfung nach Security-Review (Reihenfolge und Zeit):**
+- **Reihenfolge am Server über Server-Sequenz, nicht über Client-Zeit.** Jeder Datensatz trägt am Server einen Versionszähler (`version`, bei jeder angenommenen Änderung +1) und die Mandanten-`seq` (4.5). Ein Upsert nennt die `baseVersion`, auf der er aufbaut; passt sie nicht zum Server-Stand, ist es ein Konflikt, der nach Regel 4.4 entschieden und gemeldet wird. `updatedAt`/`deletedAt` vom Client sind nur ein **Hinweis** (Anzeige, Tie-Break) und nie allein ausschlaggebend. `deletedAt` wird wie `updatedAt` behandelt: ebenfalls Hinweis, ebenfalls begrenzt; ein Löschvermerk mit Zeit in ferner Zukunft darf nichts dauerhaft sperren.
+- **Begründung der Abweichung zur Datei-Zusammenführung:** Dort gibt es keine gemeinsame Instanz, die eine Reihenfolge vergeben könnte; deshalb entscheidet die Zeit, und `merge.ts` begrenzt Zeitstempel auf „jetzt + 24 h“ (sonst `jetzt`). Mit Server existiert eine vertrauenswürdige Reihenfolge, und eine falsch gestellte oder manipulierte Geräteuhr soll keinen Stand dauerhaft „gewinnen“ lassen. Die strengere Uhr-Begrenzung aus Punkt 2 oben bleibt als zusätzliche Absicherung.
 
 ### 4.5 Pull mit Cursor
 `GET /v1/sync/pull?cursor=<opak>&limit=200`. Der Server vergibt beim Schreiben jeder Änderung die nächste Nummer `seq` aus dem Mandanten-Zähler (Zähler wird in derselben Transaktion erhöht und gesperrt; dadurch entstehen keine „späteren, aber kleineren“ Nummern, die ein Pull überspringen könnte **[Annahme]** – bei kleinen Mandanten unproblematisch, Schreiblast je Mandant wird serialisiert). Der Pull liefert alle Änderungen mit `seq > cursor` in Reihenfolge, dazu `hasMore` und den nächsten Cursor. Der Client wendet jede Änderung mit `decide(lokal, eingehend, lokaleLoeschung, eingehendeLoeschung)` in `withoutTracking` an – exakt wie `mergeTables`. Der Cursor wird erst nach erfolgreichem Einspielen der Seite gespeichert.

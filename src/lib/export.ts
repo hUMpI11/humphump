@@ -1,5 +1,6 @@
 import { db, TABLES } from '../db';
-import { mergeTables, type MergeResult } from '../sync/merge';
+import { prepareMerge, runPrepared, type MergeResult } from '../sync/merge';
+import { FORBIDDEN_KEYS } from '../sync/validate';
 
 /** CSV mit Semikolon + BOM, damit deutsches Excel es direkt richtig öffnet. */
 export function toCsv(rows: (string | number | boolean)[][]): string {
@@ -38,8 +39,14 @@ function bufToB64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
-function b64ToBuf(b64: string): ArrayBuffer {
-  const bin = atob(b64);
+function b64ToBuf(b64: unknown): ArrayBuffer {
+  if (typeof b64 !== 'string') throw new Error('Bilddaten fehlen oder haben ein falsches Format');
+  let bin: string;
+  try {
+    bin = atob(b64);
+  } catch {
+    throw new Error('Bilddaten sind nicht lesbar (kaputtes Base64)');
+  }
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes.buffer;
@@ -56,7 +63,8 @@ export function encodeRecord(rec: Json): Json {
 export function decodeRecord(rec: Json): Json {
   const out: Json = {};
   for (const [k, v] of Object.entries(rec)) {
-    out[k] = v && typeof v === 'object' && '__b64' in v ? b64ToBuf((v as { __b64: string }).__b64) : v;
+    if ((FORBIDDEN_KEYS as readonly string[]).includes(k)) continue; // JSON.parse legt `__proto__` als eigenen Schlüssel an
+    out[k] = v && typeof v === 'object' && '__b64' in v ? b64ToBuf((v as { __b64: unknown }).__b64) : v;
   }
   return out;
 }
@@ -90,27 +98,49 @@ export interface RestorePlan {
   anwenden(): Promise<MergeResult>;
 }
 
-// GERÜST – wird von Auftrag F implementiert (Vorschau rechnen, Datei vorab vollständig prüfen).
-export async function planRestore(file: Blob): Promise<RestorePlan> {
-  return { vorschau: { neu: 0, aktualisiert: 0, behalten: 0, geloescht: 0, verworfen: 0, korrigiert: 0 }, anwenden: () => restoreBackup(file) };
-}
+const MAX_BACKUP_BYTES = 500 * 1024 * 1024;
 
 /**
- * Spielt eine Sicherung ein und führt sie je Datensatz mit dem lokalen Stand zusammen (siehe src/sync/merge.ts).
+ * Liest und prüft eine Sicherung vollständig (nichts wird geschrieben) und liefert die Vorschau.
+ * `anwenden()` schreibt in einer einzigen Transaktion: entweder alles oder nichts.
+ * Bewusste Grenze: Die Datei wird als Ganzes gelesen und dekodiert im Speicher gehalten (siehe merge.ts), daher das Größenlimit.
  * Sicherungen der Version 1 (ohne tombstones/protocols/updatedAt) funktionieren; fehlende Tabellen zählen als leer.
  */
-export async function restoreBackup(file: Blob): Promise<MergeResult> {
-  const json = JSON.parse(await file.text()) as { format?: string; tables?: Record<string, Json[]> };
-  if (json.format !== BACKUP_FORMAT || !json.tables) throw new Error('Das ist keine gültige Baustellenbuch-Sicherung.');
+export async function planRestore(file: Blob): Promise<RestorePlan> {
+  if (file.size > MAX_BACKUP_BYTES) {
+    throw new Error(`Die Datei ist zu groß (${Math.round(file.size / 1024 / 1024)} MB, erlaubt sind 500 MB). Sie kann auf diesem Gerät nicht sicher eingelesen werden.`);
+  }
+  let json: { format?: unknown; tables?: unknown };
+  try {
+    json = JSON.parse(await file.text());
+  } catch {
+    throw new Error('Die Datei ist keine lesbare Baustellenbuch-Sicherung (beschädigt oder abgeschnitten).');
+  }
+  const tabellen = json && typeof json === 'object' ? json.tables : undefined;
+  if (!json || typeof json !== 'object' || json.format !== BACKUP_FORMAT || !tabellen || typeof tabellen !== 'object' || Array.isArray(tabellen)) {
+    throw new Error('Das ist keine gültige Baustellenbuch-Sicherung.');
+  }
   const tables: Record<string, Json[]> = {};
   for (const name of TABLES) {
-    const rows = json.tables[name];
-    if (Array.isArray(rows)) tables[name] = rows;
+    const rows = (tabellen as Record<string, unknown>)[name];
+    if (Array.isArray(rows)) tables[name] = rows.filter((r): r is Json => !!r && typeof r === 'object' && !Array.isArray(r));
   }
-  const result = await mergeTables(tables, { decode: decodeRecord });
-  // Alte Löschvermerke aufräumen: nach so langer Zeit ist ein Gerät mit altem Stand nicht mehr zu erwarten.
-  await db.tombstones.where('key').above('').filter((t) => t.deletedAt < Date.now() - TOMBSTONE_MAX_AGE).delete();
-  return result;
+  const prepared = prepareMerge(tables, { decode: decodeRecord });
+  const vorschau = await runPrepared(prepared, { dryRun: true });
+  return {
+    vorschau,
+    async anwenden() {
+      const result = await runPrepared(prepared);
+      // Alte Löschvermerke aufräumen: nach so langer Zeit ist ein Gerät mit altem Stand nicht mehr zu erwarten.
+      await db.tombstones.where('key').above('').filter((t) => t.deletedAt < Date.now() - TOMBSTONE_MAX_AGE).delete();
+      return result;
+    },
+  };
+}
+
+/** Spielt eine Sicherung ein (Abkürzung für planRestore + anwenden), siehe src/sync/merge.ts. */
+export async function restoreBackup(file: Blob): Promise<MergeResult> {
+  return (await planRestore(file)).anwenden();
 }
 
 /** Text über den Teilen-Dialog weitergeben (WhatsApp, Mail …), ersatzweise in die Zwischenablage. */

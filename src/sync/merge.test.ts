@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decide } from './merge';
+import { decide, prepareMerge } from './merge';
 
 const rec = (updatedAt?: number, createdAt?: number) => ({ id: 'x', ...(updatedAt !== undefined ? { updatedAt } : {}), ...(createdAt !== undefined ? { createdAt } : {}) });
 
@@ -62,5 +62,40 @@ describe('decide', () => {
   });
   it('Löschvermerk 0 ist ein Löschvermerk', () => {
     expect(decide(rec(), undefined, undefined, 0)).toBe('loeschen');
+  });
+});
+
+describe('prepareMerge', () => {
+  const NOW = 1_700_000_000_000;
+  const projekt = (o: Record<string, unknown> = {}) => ({ id: 'p1', name: 'A', kunde: '', adresse: '', auftragsnr: '', gewerke: [], status: 'aktiv', beschreibung: '', createdAt: 1, updatedAt: 2, ...o });
+
+  it('ungültige Zeilen werden gezählt und übersprungen, gültige bleiben', () => {
+    const p = prepareMerge({ projects: [projekt(), projekt({ id: 'p2', name: { x: 1 } })] }, { now: NOW });
+    expect(p.rows.projects.map((r) => r.id)).toEqual(['p1']);
+    expect(p.verworfen).toBe(1);
+  });
+  it('Zeitstempel in der Zukunft werden begrenzt und gezählt', () => {
+    const p = prepareMerge({ projects: [projekt({ updatedAt: 9e15 })], tombstones: [{ key: 'times:t1', table: 'times', id: 't1', deletedAt: 1e15 }] }, { now: NOW });
+    expect(p.rows.projects[0].updatedAt).toBe(NOW);
+    expect(p.tombstones[0].deletedAt).toBe(NOW);
+    expect(p.korrigiert).toBe(2);
+  });
+  it('Löschvermerk mit ungültiger Zeit wird ignoriert', () => {
+    const p = prepareMerge({ tombstones: [{ key: 'times:t1', deletedAt: -3 }, { key: 'times:t2', deletedAt: Infinity }] }, { now: NOW });
+    expect(p.tombstones).toEqual([]);
+    expect(p.verworfen).toBe(2);
+  });
+  it('Fehler beim Dekodieren bricht alles ab', () => {
+    const decode = (r: Record<string, unknown>) => {
+      if (r.id === 'kaputt') throw new Error('Base64');
+      return r;
+    };
+    expect(() => prepareMerge({ projects: [projekt(), projekt({ id: 'kaputt' })] }, { decode, now: NOW })).toThrow(/nichts verändert/);
+  });
+  it('Profil nur gültig', () => {
+    expect(prepareMerge({ settings: [{ key: 'profil', value: { name: 'A', firma: 'B', rundung: 5 } }] }).profil).toEqual({ name: 'A', firma: 'B', rundung: 5 });
+    const p = prepareMerge({ settings: [{ key: 'profil', value: { name: 'A', firma: 'B', rundung: 7 } }] });
+    expect(p.profil).toBeNull();
+    expect(p.verworfen).toBe(1);
   });
 });
