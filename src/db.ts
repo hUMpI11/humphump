@@ -34,6 +34,8 @@ export interface TimeEntry {
   gewerk: string;
   regie: boolean;
   fahrtKm?: number;
+  /** Diese Stunden stehen bereits auf einer Rechnung. */
+  abgerechnet?: boolean;
   createdAt: number;
 }
 

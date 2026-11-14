@@ -170,7 +170,7 @@ const SPECS: Record<string, Spec> = {
       id: id(), projectId: id(), datum, mitarbeiter: str(200), von: uhrzeit, bis: uhrzeit, pauseMin: num(0, 24 * 60), minuten: num(0, 100_000),
       taetigkeit: str(MAX_TEXT), gewerk: str(100), regie: bool,
     },
-    optional: { fahrtKm: num(0, 100_000) },
+    optional: { fahrtKm: num(0, 100_000), abgerechnet: bool },
   },
   materials: {
     required: { id: id(), projectId: id(), datum, bezeichnung: str(), menge: num(-1e9, 1e9), einheit: str(50), artikelnr: str(200), gewerk: str(100), regie: bool },
