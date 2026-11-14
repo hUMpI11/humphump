@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useBlobUrl } from '../lib/image';
 
 const ICONS: Record<string, ReactNode> = {
@@ -60,7 +61,10 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  return (
+  // Über ein Portal direkt an <body> hängen: Safari auf dem iPhone beschneidet fest positionierte Elemente,
+  // die in einem scrollbaren Bereich stecken, auf diesen Bereich. Das Formular lag dadurch unter Kopfzeile
+  // und Tab-Leiste, „Speichern“ war nicht erreichbar.
+  return createPortal(
     // Bewusst kein Schließen durch Tippen auf den Hintergrund: mit Handschuhen oder
     // nassen Fingern wäre sonst schnell ein halb ausgefülltes Formular weg.
     <div className="sheet-backdrop">
@@ -73,7 +77,8 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
         </div>
         <div className="sheet-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

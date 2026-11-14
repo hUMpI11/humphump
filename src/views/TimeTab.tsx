@@ -302,6 +302,8 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   const [km, setKm] = useState(draft.fahrtKm ? String(draft.fahrtKm).replace('.', ',') : '');
   const eigene = useLiveQuery(() => eigeneTaetigkeiten(), []) ?? [];
   const fromTimer = !draft.id && !!draft.von;
+  const [alleVorschlaege, setAlleVorschlaege] = useState(false);
+  const vorschlagsliste = merge(eigene, vorschlaege(gewerk).taetigkeiten, (t) => t);
   const lock = useLock();
 
   const pauseMin = Math.max(0, Math.round(parseDecimal(pause) || 0));
@@ -381,11 +383,16 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
           <textarea rows={2} value={taetigkeit} onChange={(e) => setTaetigkeit(e.target.value)} placeholder="Was wurde gemacht?" />
         </Field>
         <div className="suggest">
-          {merge(eigene, vorschlaege(gewerk).taetigkeiten, (t) => t).map((t) => (
+          {(alleVorschlaege ? vorschlagsliste : vorschlagsliste.slice(0, 8)).map((t) => (
             <button key={t} type="button" className="chip" onClick={() => setTaetigkeit((cur) => (cur.trim() ? `${cur.trim()}, ${t}` : t))}>
               {t}
             </button>
           ))}
+          {!alleVorschlaege && vorschlagsliste.length > 8 && (
+            <button type="button" className="chip more" onClick={() => setAlleVorschlaege(true)}>
+              mehr …
+            </button>
+          )}
         </div>
         <Field label="Gefahrene Kilometer (optional)" hint="Für die Abrechnung der Anfahrt.">
           <input inputMode="decimal" value={km} onChange={(e) => setKm(e.target.value)} placeholder="0" />

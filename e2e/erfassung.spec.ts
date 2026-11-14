@@ -231,3 +231,26 @@ test.describe('Notizen und offene Punkte', () => {
     await expect(main.getByText('Offene Punkte')).toHaveCount(0);
   });
 });
+
+test.describe('Formulare liegen über der ganzen Seite', () => {
+  // Safari auf dem iPhone beschneidet fest positionierte Elemente innerhalb eines Scrollbereichs. Das lässt sich
+  // in Chromium nicht nachstellen – geprüft wird deshalb die Ursache: Das Formular hängt direkt an <body>.
+  test('Stundenformular hängt an body und Speichern liegt im sichtbaren Bereich', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Heizung Müller', gewerke: ['Heizung'] });
+    await tab(page, 'Stunden');
+    await page.getByRole('button', { name: 'Stunden eintragen' }).click();
+    const sheet = page.locator('.sheet-backdrop');
+    await expect(sheet).toBeVisible();
+    expect(await sheet.evaluate((el) => el.parentElement === document.body)).toBe(true);
+    expect(await sheet.evaluate((el) => !!el.closest('.scroll'))).toBe(false);
+    const knopf = page.getByRole('button', { name: 'Speichern', exact: true });
+    await knopf.scrollIntoViewIfNeeded();
+    const b = (await knopf.boundingBox())!;
+    const hoehe = page.viewportSize()!.height;
+    expect(b.y + b.height).toBeLessThanOrEqual(hoehe);
+    // Die Tab-Leiste darf den Knopf nicht verdecken: An seiner Mitte liegt wirklich der Knopf.
+    const oben = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.textContent ?? '', [b.x + b.width / 2, b.y + b.height / 2]);
+    expect(oben).toContain('Speichern');
+    await abbrechen(page);
+  });
+});

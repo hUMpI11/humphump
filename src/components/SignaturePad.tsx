@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { canvasToBuffer } from '../lib/image';
 
 const W = 1000;
@@ -58,7 +59,8 @@ export function SignaturePad({ onCancel, onSave }: { onCancel: () => void; onSav
     setHasInk(false);
   }
 
-  return (
+  // Wie Sheet: per Portal an <body>, damit Safari es nicht auf den Scrollbereich beschneidet.
+  return createPortal(
     <div className="signpad">
       <div className="signpad-head">
         <button type="button" className="link" onClick={onCancel}>
@@ -77,6 +79,7 @@ export function SignaturePad({ onCancel, onSave }: { onCancel: () => void; onSav
       <button type="button" className="btn primary" disabled={!hasInk || !name.trim()} onClick={async () => onSave(name.trim(), await canvasToBuffer(canvas.current!, 'image/png'))}>
         Unterschrift übernehmen
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
