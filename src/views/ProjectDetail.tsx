@@ -64,8 +64,9 @@ function Overview({ project }: { project: Project }) {
     ]);
     const minuten = times.reduce((s, t) => s + t.minuten, 0);
     const regie = times.filter((t) => t.regie).reduce((s, t) => s + t.minuten, 0);
+    const abger = times.filter((t) => t.abgerechnet).reduce((s, t) => s + t.minuten, 0);
     const offen = noteList.filter((n) => n.todo && !n.done).length;
-    return { minuten, regie, material, notes: noteList.length, offen, photos, sketches };
+    return { minuten, regie, abger, material, notes: noteList.length, offen, photos, sketches };
   }, [id]);
 
   const done = project.status === 'abgeschlossen';
@@ -81,7 +82,7 @@ function Overview({ project }: { project: Project }) {
       <div className="stats">
         <a className="stat" href={`#/p/${id}/stunden`}>
           <span className="num">{fmtHours(stats?.minuten ?? 0)}</span>
-          <span>Stunden{stats?.regie ? ` · davon ${fmtHours(stats.regie)} Regie` : ''}</span>
+          <span>Stunden{stats?.regie ? ` · davon ${fmtHours(stats.regie)} Regie` : ''}{stats?.abger ? ` · offen ${fmtHours(stats.minuten - stats.abger)}` : ''}</span>
         </a>
         <a className="stat" href={`#/p/${id}/material`}>
           <span className="num">{stats?.material ?? 0}</span>

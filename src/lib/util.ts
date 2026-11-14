@@ -82,17 +82,102 @@ export function fmtHours(minuten: number): string {
   return (minuten / 60).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' h';
 }
 
-/** Gruppiert nach Datum, neueste zuerst; innerhalb des Tages nach Erstellzeit. */
-export function groupByDate<T extends { datum: string; createdAt: number }>(items: T[]): [string, T[]][] {
+export type Reihenfolge = 'neu' | 'alt';
+
+/** Gruppiert nach Datum (Standard: neueste zuerst); innerhalb des Tages nach Erstellzeit. */
+export function groupByDate<T extends { datum: string; createdAt: number }>(items: T[], reihenfolge: Reihenfolge = 'neu'): [string, T[]][] {
   const map = new Map<string, T[]>();
   for (const it of items) {
     const list = map.get(it.datum);
     if (list) list.push(it);
     else map.set(it.datum, [it]);
   }
+  const dir = reihenfolge === 'neu' ? -1 : 1;
   return [...map.entries()]
-    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .sort((a, b) => (a[0] < b[0] ? -dir : dir))
     .map(([d, list]) => [d, list.sort((a, b) => a.createdAt - b.createdAt)]);
+}
+
+/** ISO-8601-Kalenderwoche (Montag bis Sonntag, KW 1 enthält den ersten Donnerstag). */
+export function isoWeek(iso: string): { jahr: number; kw: number } {
+  const [y, m, d] = iso.split('-').map(Number);
+  const tag = Date.UTC(y, m - 1, d);
+  const wochentag = (new Date(tag).getUTCDay() + 6) % 7; // Montag = 0
+  const donnerstag = new Date(tag + (3 - wochentag) * 86_400_000);
+  const jahr = donnerstag.getUTCFullYear();
+  const tagImJahr = Math.round((donnerstag.getTime() - Date.UTC(jahr, 0, 1)) / 86_400_000);
+  return { jahr, kw: Math.floor(tagImJahr / 7) + 1 };
+}
+
+/** "KW 45 · 02.11.–08.11.2026" (über den Jahreswechsel mit beiden Jahren). */
+export function weekLabel(iso: string): string {
+  const { kw } = isoWeek(iso);
+  const von = weekStart(iso);
+  const bis = addDays(von, 6);
+  const a = fmtDate(von, false);
+  const b = fmtDate(bis, false);
+  return `KW ${kw} · ${von.slice(0, 4) === bis.slice(0, 4) ? a.slice(0, 6) : a}–${b}`;
+}
+
+/** "November 2026" */
+export function monthLabel(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+}
+
+export type Abrechnung = 'alle' | 'offen' | 'abgerechnet';
+
+export interface ZeitFilter {
+  suche: string;
+  nurRegie: boolean;
+  abrechnung: Abrechnung;
+}
+
+interface ZeitLike {
+  datum: string;
+  createdAt: number;
+  minuten: number;
+  regie: boolean;
+  abgerechnet?: boolean;
+  taetigkeit: string;
+  mitarbeiter: string;
+}
+
+export const sumMinuten = (items: { minuten: number }[]) => items.reduce((s, e) => s + e.minuten, 0);
+
+/** Suche in Tätigkeit und Mitarbeiter ohne Groß-/Kleinschreibung; alle Bedingungen müssen zutreffen. */
+export function filterTimes<T extends ZeitLike>(items: T[], f: ZeitFilter): T[] {
+  const q = f.suche.trim().toLowerCase();
+  return items.filter(
+    (e) =>
+      (!q || e.taetigkeit.toLowerCase().includes(q) || e.mitarbeiter.toLowerCase().includes(q)) &&
+      (!f.nurRegie || e.regie) &&
+      (f.abrechnung === 'alle' || (f.abrechnung === 'abgerechnet') === !!e.abgerechnet),
+  );
+}
+
+export interface ZeitGruppe<T> {
+  key: string;
+  label: string;
+  anzahl: number;
+  minuten: number;
+  items: T[];
+  tage: [string, T[]][];
+}
+
+/** Gruppiert Stunden nach Kalenderwoche (ISO) oder Monat; Abschnitte und Tage in der gewählten Reihenfolge. */
+export function groupTimes<T extends ZeitLike>(items: T[], modus: 'wochen' | 'monate', reihenfolge: Reihenfolge = 'neu'): ZeitGruppe<T>[] {
+  const map = new Map<string, { label: string; items: T[] }>();
+  for (const it of items) {
+    const key = modus === 'monate' ? it.datum.slice(0, 7) : weekStart(it.datum);
+    const g = map.get(key);
+    if (g) g.items.push(it);
+    else map.set(key, { label: modus === 'monate' ? monthLabel(it.datum) : weekLabel(it.datum), items: [it] });
+  }
+  const dir = reihenfolge === 'neu' ? -1 : 1;
+  return [...map.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -dir : dir))
+    .map(([key, g]) => ({ key, label: g.label, anzahl: g.items.length, minuten: sumMinuten(g.items), items: g.items, tage: groupByDate(g.items, reihenfolge) }));
 }
 
 export function inRange(datum: string, von: string, bis: string): boolean {

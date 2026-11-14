@@ -59,4 +59,34 @@ test.describe('Protokolle', () => {
     await expect(zeile).toContainText('1 Mangel');
     await expect(zeile).toContainText('abgeschlossen');
   });
+
+  test('Bautagesbericht: Personal und Stunden werden summiert, gespeichert und im Bericht gezeigt', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Neubau – Tagesbericht', gewerke: ['Heizung'] });
+    await neuesProtokoll(page, 'Bautagesbericht');
+    const main = hauptbereich(page);
+    await main.getByRole('button', { name: '+ Person' }).click();
+    await main.getByLabel('Name, Person 1', { exact: true }).fill('Anna Muster');
+    await main.getByLabel('Tätigkeit, Person 1', { exact: true }).fill('Rohrleitungen');
+    await main.getByLabel('Stunden (h), Person 1', { exact: true }).fill('7,5');
+    await main.getByRole('button', { name: '+ Person' }).click();
+    await main.getByLabel('Name, Person 2', { exact: true }).fill('Bernd Beispiel');
+    await main.getByLabel('Stunden (h), Person 2', { exact: true }).fill('8');
+    await expect(main.locator('.proto-sums')).toContainText('Stunden gesamt');
+    await expect(main.locator('.proto-sums')).toContainText('15,5 h');
+
+    await expect.poll(async () => JSON.stringify((await tabelle(page, 'protocols'))[0]?.values ?? {})).toContain('Bernd Beispiel');
+    await page.reload();
+    await expect(hauptbereich(page).getByLabel('Name, Person 2', { exact: true })).toHaveValue('Bernd Beispiel');
+    await expect(hauptbereich(page).getByLabel('Stunden (h), Person 1', { exact: true })).toHaveValue('7,5');
+    await expect(hauptbereich(page).locator('.proto-sums')).toContainText('15,5 h');
+
+    const [p] = await tabelle(page, 'protocols');
+    await page.goto(`/#/p/${p.projectId}/bericht`);
+    const bericht = page.locator('.report');
+    await expect(bericht.getByText('Bautagesbericht')).toBeVisible();
+    await expect(bericht.getByText('Anna Muster')).toBeVisible();
+    await expect(bericht.getByText('Rohrleitungen')).toBeVisible();
+    await expect(bericht.getByText('Stunden gesamt')).toBeVisible();
+    await expect(bericht.getByText('15,5').first()).toBeVisible();
+  });
 });

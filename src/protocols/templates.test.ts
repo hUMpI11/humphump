@@ -9,13 +9,13 @@ const fields = (t: Template): Field[] => t.sections.flatMap((s) => s.fields);
 const tables = (t: Template) => fields(t).filter((f): f is TableField => f.type === 'table');
 
 describe('Vorlagen', () => {
-  it('hat 12 bis 16 Vorlagen mit eindeutigen kebab-case-ids und version 1', () => {
+  it('hat 12 bis 16 Vorlagen mit eindeutigen kebab-case-ids und gültiger Version', () => {
     expect(TEMPLATES.length).toBeGreaterThanOrEqual(12);
     expect(TEMPLATES.length).toBeLessThanOrEqual(16);
     expect(dupes(TEMPLATES.map((t) => t.id))).toEqual([]);
     for (const t of TEMPLATES) {
       expect(t.id).toMatch(/^[a-z]+(-[a-z]+)*$/);
-      expect(t.version).toBe(1);
+      expect(t.version).toBe(t.id === 'bautagesbericht' ? 2 : 1);
       expect(templateById(t.id)).toBe(t);
     }
   });
@@ -119,5 +119,16 @@ describe('templatesFor', () => {
     const r = templatesFor([]);
     expect(r.length).toBeGreaterThan(0);
     expect(r.every((t) => t.gewerke.includes('*'))).toBe(true);
+  });
+
+  it('Bautagesbericht (Version 2) hat die Tabelle Personal und Stunden mit Summe', () => {
+    const t = templateById('bautagesbericht')!;
+    const tb = tables(t).find((x) => x.id === 'personalStunden')!;
+    expect(tb.rowLabel).toBe('Person');
+    expect(tb.columns.map((c) => c.id)).toEqual(['name', 'taetigkeit', 'stunden']);
+    expect(tb.columns[2]).toMatchObject({ type: 'number', unit: 'h' });
+    expect(tb.summary).toEqual([{ column: 'stunden', label: 'Stunden gesamt', unit: 'h' }]);
+    expect(fields(t).some((f) => f.id === 'personal')).toBe(true); // alte Werte bleiben lesbar
+    expect(t.beschreibung).toMatch(/nicht in den Stunden-Reiter/);
   });
 });

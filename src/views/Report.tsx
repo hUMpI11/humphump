@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, DEFAULT_PROFIL, getSetting, type Profil } from '../db';
 import { gewerkName } from '../gewerke';
 import { shareOrDownload, shareText, toCsv } from '../lib/export';
-import { addDays, fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, sumMaterial, uid, weekStart } from '../lib/util';
+import { addDays, filterTimes, fmtDate, fmtHours, fmtNumber, hhmm, inRange, isoDate, safeFilename, sumMaterial, uid, weekStart, type Abrechnung } from '../lib/util';
 import { SignaturePad } from '../components/SignaturePad';
 import { BufferImg, Header } from '../components/ui';
 import { ProtocolPrint } from '../protocols/ProtocolPrint';
@@ -19,6 +19,7 @@ export default function Report({ id }: { id: string }) {
   const [bis, setBis] = useState('');
   const [signing, setSigning] = useState(false);
   const [nurRegie, setNurRegie] = useState(false);
+  const [abrechnung, setAbrechnung] = useState<Abrechnung>('alle');
   const [matSumme, setMatSumme] = useState(false);
   const [hinweis, setHinweis] = useState('');
   const [show, setShow] = useState<Record<Section, boolean>>({ Stunden: true, Material: true, Notizen: true, Fotos: true, Skizzen: true, Protokolle: true });
@@ -45,7 +46,7 @@ export default function Report({ id }: { id: string }) {
 
   const { project, profil, blobs } = data;
   // Regiebericht: nur die Zusatzleistungen – das, was der Kunde vor Ort gegenzeichnen soll.
-  const times = data.times.filter((t) => inRange(t.datum, von, bis) && (!nurRegie || t.regie)).sort(byDate);
+  const times = filterTimes(data.times, { suche: '', nurRegie, abrechnung }).filter((t) => inRange(t.datum, von, bis)).sort(byDate);
   const materials = data.materials.filter((m) => inRange(m.datum, von, bis) && (!nurRegie || m.regie)).sort(byDate);
   const titel = nurRegie ? 'Regiebericht' : 'Baustellenbericht';
   const notes = data.notes.filter((n) => inRange(n.datum, von, bis)).sort(byDate);
@@ -57,7 +58,9 @@ export default function Report({ id }: { id: string }) {
   const sum = times.reduce((s, t) => s + t.minuten, 0);
   const sumKm = times.reduce((s, t) => s + (t.fahrtKm ?? 0), 0);
   // Eine Unterschrift gilt genau für den Zeitraum, für den sie geleistet wurde.
-  const signature = data.signatures.filter((s) => s.von === von && s.bis === bis && !!s.nurRegie === nurRegie).sort((a, b) => b.createdAt - a.createdAt)[0];
+  // Die Auswahl der Stunden gehört dazu, ist aber nicht im Datensatz: Unterschriften gelten nur für „Alle Stunden“.
+  const signature = abrechnung === 'alle' ? data.signatures.filter((s) => s.von === von && s.bis === bis && !!s.nurRegie === nurRegie).sort((a, b) => b.createdAt - a.createdAt)[0] : undefined;
+  const stundenAuswahl = abrechnung === 'offen' ? 'Nur offene Stunden' : abrechnung === 'abgerechnet' ? 'Nur abgerechnete Stunden' : '';
   const sumRegie = times.filter((t) => t.regie).reduce((s, t) => s + t.minuten, 0);
   const zeitraum = von || bis ? `${von ? fmtDate(von, false) : 'Beginn'} – ${bis ? fmtDate(bis, false) : 'heute'}` : 'Gesamte Baustelle';
   const base = safeFilename(project.name);
@@ -92,7 +95,7 @@ export default function Report({ id }: { id: string }) {
     );
 
   async function textTeilen() {
-    const z: string[] = [`${titel} – ${project.name}`, zeitraum, ''];
+    const z: string[] = [`${titel} – ${project.name}`, zeitraum, ...(stundenAuswahl ? [stundenAuswahl] : []), ''];
     if ((show.Stunden || nurRegie) && times.length) {
       z.push('Arbeitszeiten:');
       for (const t of times) {
@@ -147,6 +150,22 @@ export default function Report({ id }: { id: string }) {
               Nur Regie
             </button>
           </div>
+          <div className="field">
+            <span className="field-label">Stunden</span>
+            <div className="segmented" role="group" aria-label="Stunden im Bericht">
+              {(
+                [
+                  ['alle', 'Alle Stunden'],
+                  ['offen', 'Nur offene'],
+                  ['abgerechnet', 'Nur abgerechnete'],
+                ] as const
+              ).map(([wert, label]) => (
+                <button key={wert} type="button" className={abrechnung === wert ? 'on' : ''} aria-pressed={abrechnung === wert} onClick={() => setAbrechnung(wert)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           {!nurRegie && (
             <div className="field">
               <span className="field-label">Inhalt</span>
@@ -168,10 +187,12 @@ export default function Report({ id }: { id: string }) {
               <button type="button" className="btn danger" onClick={() => window.confirm('Unterschrift entfernen?') && db.signatures.delete(signature.id)}>
                 Unterschrift von {signature.name} entfernen
               </button>
-            ) : (
+            ) : abrechnung === 'alle' ? (
               <button type="button" className="btn" onClick={() => setSigning(true)}>
                 Kunde unterschreiben lassen
               </button>
+            ) : (
+              <p className="calc">Unterschreiben lassen geht nur bei „Alle Stunden“.</p>
             )}
             <button type="button" className="btn primary" onClick={() => window.print()}>
               Drucken / als PDF sichern
@@ -196,6 +217,7 @@ export default function Report({ id }: { id: string }) {
             <div>
               <h1>{titel}</h1>
               <p>{zeitraum}</p>
+              {stundenAuswahl && <p>{stundenAuswahl}</p>}
             </div>
             <div className="right">
               {profil.firma && <strong>{profil.firma}</strong>}

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, DEFAULT_PROFIL, DEFAULT_RUNDUNG, getSetting, setSetting, touchProject, type Profil, type Project, type RunningTimer, type TimeEntry } from '../db';
 import { gewerkName, vorschlaege } from '../gewerke';
-import { fmtDate, fmtHours, fmtNumber, groupByDate, hhmm, isoDate, minutesBetween, parseDecimal, pauseVorschlag, roundDate, uid } from '../lib/util';
+import { filterTimes, fmtDate, fmtHours, fmtNumber, groupByDate, groupTimes, hhmm, isoDate, minutesBetween, parseDecimal, pauseVorschlag, roundDate, sumMinuten, uid, type Abrechnung, type Reihenfolge } from '../lib/util';
 import { eigeneTaetigkeiten, merge } from '../lib/history';
 import { useLock } from '../lib/useLock';
 import { Empty, Fab, Field, FormActions, Icon, Sheet } from '../components/ui';
@@ -12,6 +12,20 @@ type Draft = Partial<TimeEntry>;
 
 /** Läuft ein Timer länger, wurde er ziemlich sicher vergessen. */
 const VERGESSEN_MS = 14 * 3_600_000;
+
+type Modus = 'tage' | 'wochen' | 'monate';
+interface Ansicht {
+  modus: Modus;
+  reihenfolge: Reihenfolge;
+}
+const ANSICHT_STANDARD: Ansicht = { modus: 'tage', reihenfolge: 'neu' };
+const MODI: { id: Modus; label: string }[] = [
+  { id: 'tage', label: 'Tage' },
+  { id: 'wochen', label: 'Wochen' },
+  { id: 'monate', label: 'Monate' },
+];
+
+const eintraege = (n: number) => `${n} ${n === 1 ? 'Eintrag' : 'Einträge'}`;
 
 function seit(start: number): string {
   const d = new Date(start);
@@ -23,7 +37,32 @@ export default function TimeTab({ project }: { project: Project }) {
   const profil = useLiveQuery(() => getSetting<Profil>('profil', DEFAULT_PROFIL), []);
   const timer = useLiveQuery(() => getSetting<RunningTimer | null>('timer', null), []);
   const timerProject = useLiveQuery(async () => (timer ? ((await db.projects.get(timer.projectId)) ?? null) : null), [timer?.projectId]);
+  const gespeichert = useLiveQuery(() => getSetting<Partial<Ansicht>>('stundenAnsicht', {}), []);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Suche und Filter werden bewusst nicht gemerkt.
+  const [suche, setSuche] = useState('');
+  const [nurRegie, setNurRegie] = useState(false);
+  const [abrechnung, setAbrechnung] = useState<Abrechnung>('alle');
+  const [aufgeklappt, setAufgeklappt] = useState<Record<string, boolean>>({});
+  const lock = useLock();
+
+  const ansicht: Ansicht | null = gespeichert
+    ? {
+        modus: MODI.find((m) => m.id === gespeichert.modus)?.id ?? ANSICHT_STANDARD.modus,
+        reihenfolge: gespeichert.reihenfolge === 'alt' ? 'alt' : 'neu',
+      }
+    : null;
+  const alle = entries ?? [];
+  const filterAktiv = suche.trim() !== '' || nurRegie || abrechnung !== 'alle';
+  const gezeigt = filterTimes(alle, { suche, nurRegie, abrechnung });
+  const minOffen = sumMinuten(alle.filter((e) => !e.abgerechnet));
+  const gruppen = ansicht && ansicht.modus !== 'tage' ? groupTimes(gezeigt, ansicht.modus, ansicht.reihenfolge) : [];
+  const neuesterKey = gruppen.reduce((m, g) => (g.key > m ? g.key : m), '');
+  const zuruecksetzen = () => {
+    setSuche('');
+    setNurRegie(false);
+    setAbrechnung('alle');
+  };
 
   const runningHere = timer?.projectId === project.id;
   const total = (entries ?? []).reduce((s, e) => s + e.minuten, 0);
@@ -44,6 +83,53 @@ export default function TimeTab({ project }: { project: Project }) {
     // Timer bleibt gespeichert, bis der Eintrag wirklich gesichert ist (siehe onSaved).
     setDraft({ datum: isoDate(start), von: hhmm(start), bis: hhmm(end), pauseMin: pauseVorschlag(brutto) });
   }
+
+  /** Setzt „abgerechnet“ für alle betroffenen Einträge in einer Transaktion – nach Rückfrage mit Anzahl und Summe. */
+  async function markieren(liste: TimeEntry[], abgerechnet: boolean, wo: string) {
+    const ziel = liste.filter((e) => !!e.abgerechnet !== abgerechnet);
+    if (!ziel.length) return;
+    const frage = abgerechnet
+      ? `${wo}: ${eintraege(ziel.length)} (${fmtHours(sumMinuten(ziel))}) als abgerechnet markieren?`
+      : `${wo}: ${eintraege(ziel.length)} (${fmtHours(sumMinuten(ziel))}) wieder als offen markieren?`;
+    if (!window.confirm(frage)) return;
+    await lock(async () => {
+      await db.transaction('rw', db.times, db.projects, async () => {
+        for (const e of ziel) await db.times.update(e.id, { abgerechnet: abgerechnet || undefined });
+        await touchProject(project.id);
+      });
+    });
+  }
+
+  const eintrag = (e: TimeEntry) => (
+    <li key={e.id}>
+      <button type="button" className="row" onClick={() => setDraft(e)}>
+        <span className="row-main">
+          <strong>{e.taetigkeit || 'Ohne Tätigkeitsangabe'}</strong>
+          <span className="muted">
+            {[e.mitarbeiter, e.von && e.bis ? `${e.von}–${e.bis}${e.pauseMin ? ` (${e.pauseMin} min Pause)` : ''}` : '', project.gewerke.length > 1 ? gewerkName(e.gewerk) : '', e.fahrtKm ? `${fmtNumber(e.fahrtKm, 1)} km` : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </span>
+        <span className="row-side">
+          {e.regie && <span className="chip warn">Regie</span>}
+          {e.abgerechnet && <span className="chip billed">abgerechnet</span>}
+          <span className="num">{fmtHours(e.minuten)}</span>
+        </span>
+      </button>
+    </li>
+  );
+
+  const tage = (liste: TimeEntry[]) =>
+    groupByDate(liste, ansicht?.reihenfolge ?? 'neu').map(([datum, list]) => (
+      <section key={datum} className="group">
+        <h3>
+          <span>{fmtDate(datum)}</span>
+          <span className="num">{fmtHours(sumMinuten(list))}</span>
+        </h3>
+        <ul className="rows card">{list.map(eintrag)}</ul>
+      </section>
+    ));
 
   return (
     <>
@@ -85,34 +171,90 @@ export default function TimeTab({ project }: { project: Project }) {
 
       {entries && entries.length === 0 && <Empty icon="clock" title="Noch keine Stunden" text="Mit „Start“ die Zeit mitlaufen lassen oder über + nachträglich eintragen." />}
 
-      {groupByDate(entries ?? []).map(([datum, list]) => (
-        <section key={datum} className="group">
-          <h3>
-            <span>{fmtDate(datum)}</span>
-            <span className="num">{fmtHours(list.reduce((s, e) => s + e.minuten, 0))}</span>
-          </h3>
-          <ul className="rows card">
-            {list.map((e) => (
-              <li key={e.id}>
-                <button type="button" className="row" onClick={() => setDraft(e)}>
-                  <span className="row-main">
-                    <strong>{e.taetigkeit || 'Ohne Tätigkeitsangabe'}</strong>
-                    <span className="muted">
-                      {[e.mitarbeiter, e.von && e.bis ? `${e.von}–${e.bis}${e.pauseMin ? ` (${e.pauseMin} min Pause)` : ''}` : '', project.gewerke.length > 1 ? gewerkName(e.gewerk) : '', e.fahrtKm ? `${fmtNumber(e.fahrtKm, 1)} km` : '']
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                  </span>
-                  <span className="row-side">
-                    {e.regie && <span className="chip warn">Regie</span>}
-                    <span className="num">{fmtHours(e.minuten)}</span>
-                  </span>
+      {alle.length > 0 && ansicht && (
+        <div className="zeit-steuerung">
+          <div className="zeit-zeile">
+            <div className="segmented" role="group" aria-label="Gliederung">
+              {MODI.map((m) => (
+                <button key={m.id} type="button" className={ansicht.modus === m.id ? 'on' : ''} aria-pressed={ansicht.modus === m.id} onClick={() => setSetting('stundenAnsicht', { ...ansicht, modus: m.id })}>
+                  {m.label}
                 </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn zeit-sort"
+              aria-label={ansicht.reihenfolge === 'neu' ? 'Sortierung: neueste zuerst. Umschalten auf älteste zuerst' : 'Sortierung: älteste zuerst. Umschalten auf neueste zuerst'}
+              onClick={() => setSetting('stundenAnsicht', { ...ansicht, reihenfolge: ansicht.reihenfolge === 'neu' ? 'alt' : 'neu' })}
+            >
+              {ansicht.reihenfolge === 'neu' ? 'Neueste ↓' : 'Älteste ↑'}
+            </button>
+          </div>
+          <div className="zeit-zeile">
+            <input type="search" className="zeit-suche" aria-label="Stunden durchsuchen" placeholder="Suchen …" value={suche} onChange={(e) => setSuche(e.target.value)} />
+            <select className="zeit-status" aria-label="Abrechnungsstatus" value={abrechnung} onChange={(e) => setAbrechnung(e.target.value as Abrechnung)}>
+              <option value="alle">Alle</option>
+              <option value="offen">Offen</option>
+              <option value="abgerechnet">Abgerechnet</option>
+            </select>
+            <button type="button" className={nurRegie ? 'chip on zeit-regie' : 'chip zeit-regie'} aria-pressed={nurRegie} onClick={() => setNurRegie(!nurRegie)}>
+              Nur Regie
+            </button>
+          </div>
+          <p className="zeit-summe">
+            Offen: <strong>{fmtHours(minOffen)}</strong> · Abgerechnet: <strong>{fmtHours(total - minOffen)}</strong>
+          </p>
+          {filterAktiv && (
+            <p className="zeit-summe" role="status">
+              Auswahl: <strong>{fmtHours(sumMinuten(gezeigt))}</strong> von {fmtHours(total)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {ansicht && alle.length > 0 && gezeigt.length === 0 && (
+        <div className="empty">
+          <h3>Keine Treffer</h3>
+          <p>Zu dieser Suche und diesen Filtern gibt es keine Stunden.</p>
+          <button type="button" className="btn" onClick={zuruecksetzen}>
+            Filter zurücksetzen
+          </button>
+        </div>
+      )}
+
+      {ansicht?.modus === 'tage' && tage(gezeigt)}
+      {ansicht && ansicht.modus !== 'tage' &&
+        gruppen.map((g) => {
+          const key = `${ansicht.modus}:${g.key}`;
+          const offen = aufgeklappt[key] ?? g.key === neuesterKey;
+          const alleAbgerechnet = g.items.every((e) => e.abgerechnet);
+          return (
+            <section key={key} className="zeit-gruppe card">
+              <button type="button" className="zeit-kopf" aria-expanded={offen} aria-controls={`zg-${key}`} onClick={() => setAufgeklappt({ ...aufgeklappt, [key]: !offen })}>
+                <span className={offen ? 'zeit-pfeil open' : 'zeit-pfeil'} aria-hidden="true" />
+                <span className="zeit-kopf-text">
+                  <strong>{g.label}</strong>
+                  <span className="muted">{eintraege(g.anzahl)}</span>
+                </span>
+                <span className="num">{fmtHours(g.minuten)}</span>
+              </button>
+              <button type="button" className="zeit-aktion" aria-label={`${g.label}: ${alleAbgerechnet ? 'wieder öffnen' : 'als abgerechnet markieren'}`} onClick={() => markieren(g.items, !alleAbgerechnet, g.label)}>
+                {alleAbgerechnet ? 'wieder öffnen' : 'als abgerechnet markieren'}
+              </button>
+              {offen && (
+                <div id={`zg-${key}`} className="zeit-inhalt">
+                  {tage(g.items)}
+                </div>
+              )}
+            </section>
+          );
+        })}
+
+      {ansicht && gezeigt.some((e) => !e.abgerechnet) && (
+        <button type="button" className="btn zeit-sammel" onClick={() => markieren(gezeigt, true, 'Alle angezeigten offenen Stunden')}>
+          Alle angezeigten offenen Stunden als abgerechnet markieren
+        </button>
+      )}
 
       <Fab label="Stunden eintragen" onClick={() => setDraft({})} />
       {draft && profil && (
@@ -152,6 +294,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
   const [taetigkeit, setTaetigkeit] = useState(draft.taetigkeit ?? '');
   const [gewerk, setGewerk] = useState(draft.gewerk ?? project.gewerke[0] ?? 'sonstiges');
   const [regie, setRegie] = useState(draft.regie ?? false);
+  const [abgerechnet, setAbgerechnet] = useState(draft.abgerechnet ?? false);
   const [km, setKm] = useState(draft.fahrtKm ? String(draft.fahrtKm).replace('.', ',') : '');
   const eigene = useLiveQuery(() => eigeneTaetigkeiten(), []) ?? [];
   const fromTimer = !draft.id && !!draft.von;
@@ -174,6 +317,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
       taetigkeit: taetigkeit.trim(),
       gewerk,
       regie,
+      abgerechnet: abgerechnet || undefined,
       fahrtKm: Math.max(0, parseDecimal(km) || 0) || undefined,
     };
   };
@@ -246,6 +390,10 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
           <input type="checkbox" checked={regie} onChange={(e) => setRegie(e.target.checked)} />
           <span>Regiearbeit (Zusatzleistung, gesondert abzurechnen)</span>
         </label>
+        <label className="check">
+          <input type="checkbox" checked={abgerechnet} onChange={(e) => setAbgerechnet(e.target.checked)} />
+          <span>Bereits abgerechnet</span>
+        </label>
         {draft.id && (
           <button
             type="button"
@@ -253,7 +401,7 @@ function TimeForm({ project, draft, defaultName, mitarbeiter, onClose, onSaved }
             disabled={!valid}
             onClick={() =>
               lock(async () => {
-                await db.times.add({ ...build(isoDate()), id: uid(), projectId: project.id, createdAt: Date.now() });
+                await db.times.add({ ...build(isoDate()), abgerechnet: undefined, id: uid(), projectId: project.id, createdAt: Date.now() });
                 await touchProject(project.id);
                 onClose();
               })

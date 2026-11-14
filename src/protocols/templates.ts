@@ -150,16 +150,26 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'bautagesbericht',
-    version: 1,
+    version: 2,
     name: 'Bautagesbericht',
     gewerke: ['*'],
-    beschreibung: 'Kurzer Tagesbericht: Wetter, Personal, Arbeiten, Behinderungen.',
+    beschreibung: 'Kurzer Tagesbericht: Wetter, Personal und Stunden, Arbeiten, Behinderungen. Die Stunden stehen nur im Bericht und werden nicht in den Stunden-Reiter übernommen.',
     sections: [
       abschnitt('Tag', [
         datum('datum', 'Datum'),
         auswahl('wetter', 'Wetter', ['trocken', 'Regen', 'Schnee / Frost', 'Wind', 'wechselhaft']),
         zahl('temperatur', 'Temperatur', '°C'),
         zahl('personal', 'Personal auf der Baustelle', 'Pers.'),
+      ]),
+      abschnitt('Personal und Stunden', [
+        {
+          id: 'personalStunden',
+          label: 'Personal und Stunden',
+          type: 'table',
+          rowLabel: 'Person',
+          columns: [spalteText('name', 'Name'), spalteText('taetigkeit', 'Tätigkeit'), spalteZahl('stunden', 'Stunden', 'h')],
+          summary: [{ column: 'stunden', label: 'Stunden gesamt', unit: 'h' }],
+        },
       ]),
       abschnitt('Bericht', [
         longtext('arbeiten', 'Ausgeführte Arbeiten'),

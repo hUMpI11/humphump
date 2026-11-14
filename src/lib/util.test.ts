@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtHours, groupByDate, inRange, minutesBetween, parseDecimal, safeFilename } from './util';
+import { filterTimes, fmtHours, groupByDate, groupTimes, inRange, isoWeek, minutesBetween, monthLabel, parseDecimal, safeFilename, weekLabel } from './util';
 import { decodeRecord, encodeRecord, toCsv } from './export';
 import { parseRoute } from './router';
 
@@ -114,5 +114,71 @@ describe('Materialsummen', () => {
       { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 20.6, regie: false },
       { bezeichnung: 'Wickelfalzrohr DN125', einheit: 'm', menge: 2, regie: true },
     ]);
+  });
+});
+
+describe('Stunden gliedern', () => {
+  const z = (datum: string, minuten: number, extra: Partial<{ regie: boolean; abgerechnet: boolean; taetigkeit: string; mitarbeiter: string; createdAt: number }> = {}) => ({
+    datum,
+    minuten,
+    createdAt: 1,
+    regie: false,
+    taetigkeit: '',
+    mitarbeiter: '',
+    ...extra,
+  });
+
+  it('ermittelt die ISO-Kalenderwoche inklusive Jahreswechsel', () => {
+    expect(isoWeek('2025-12-29')).toEqual({ jahr: 2026, kw: 1 });
+    expect(isoWeek('2027-01-01')).toEqual({ jahr: 2026, kw: 53 });
+    expect(isoWeek('2026-11-02')).toEqual({ jahr: 2026, kw: 45 });
+    expect(isoWeek('2026-11-08')).toEqual({ jahr: 2026, kw: 45 });
+    expect(isoWeek('2024-12-30')).toEqual({ jahr: 2025, kw: 1 });
+    expect(isoWeek('2021-01-03')).toEqual({ jahr: 2020, kw: 53 });
+  });
+
+  it('beschriftet Wochen und Monate', () => {
+    expect(weekLabel('2026-11-04')).toBe('KW 45 · 02.11.–08.11.2026');
+    expect(weekLabel('2027-01-01')).toBe('KW 53 · 28.12.2026–03.01.2027');
+    expect(monthLabel('2026-11-14')).toBe('November 2026');
+  });
+
+  it('bildet Monatsgruppen mit Anzahl und Summe, neueste zuerst', () => {
+    const g = groupTimes([z('2026-09-30', 60), z('2026-11-02', 120), z('2026-11-20', 30), z('2026-10-05', 90)], 'monate');
+    expect(g.map((x) => [x.key, x.anzahl, x.minuten])).toEqual([
+      ['2026-11', 2, 150],
+      ['2026-10', 1, 90],
+      ['2026-09', 1, 60],
+    ]);
+    expect(g[0].tage.map(([d]) => d)).toEqual(['2026-11-20', '2026-11-02']);
+  });
+
+  it('bildet Wochengruppen über den Jahreswechsel und sortiert älteste zuerst', () => {
+    const g = groupTimes([z('2026-12-31', 60), z('2027-01-01', 60), z('2027-01-04', 60)], 'wochen', 'alt');
+    expect(g.map((x) => [x.label, x.anzahl])).toEqual([
+      ['KW 53 · 28.12.2026–03.01.2027', 2],
+      ['KW 1 · 04.01.–10.01.2027', 1],
+    ]);
+    expect(g[0].tage.map(([d]) => d)).toEqual(['2026-12-31', '2027-01-01']);
+  });
+
+  it('filtert nach Suche, Regie und Abrechnung', () => {
+    const l = [
+      z('2026-01-01', 60, { taetigkeit: 'Rohre verlegen', mitarbeiter: 'Anna', regie: true }),
+      z('2026-01-02', 60, { taetigkeit: 'Fühler', mitarbeiter: 'Bernd', abgerechnet: true }),
+      z('2026-01-03', 60, { taetigkeit: 'Fühler setzen', mitarbeiter: 'anna', abgerechnet: true, regie: true }),
+    ];
+    const f = (o: Partial<Parameters<typeof filterTimes>[1]>) => filterTimes(l, { suche: '', nurRegie: false, abrechnung: 'alle', ...o }).map((x) => x.datum);
+    expect(f({})).toHaveLength(3);
+    expect(f({ suche: 'ANNA' })).toEqual(['2026-01-01', '2026-01-03']);
+    expect(f({ suche: 'fühler' })).toEqual(['2026-01-02', '2026-01-03']);
+    expect(f({ nurRegie: true })).toEqual(['2026-01-01', '2026-01-03']);
+    expect(f({ abrechnung: 'offen' })).toEqual(['2026-01-01']);
+    expect(f({ abrechnung: 'abgerechnet', nurRegie: true })).toEqual(['2026-01-03']);
+  });
+
+  it('dreht die Tagesreihenfolge um', () => {
+    const g = groupByDate([z('2026-01-01', 1), z('2026-01-03', 1)], 'alt');
+    expect(g.map(([d]) => d)).toEqual(['2026-01-01', '2026-01-03']);
   });
 });
