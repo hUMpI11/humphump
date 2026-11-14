@@ -16,6 +16,7 @@ Die Hauptsession hat das Gerüst angelegt (Schema, Vertragstypen, Routen, leere 
 | [F](F-einspielen-haerten.md) | infra-connectivity | Folge aus dem Review: Einspielen härten |
 | [G](G-datenschutz-ui.md) | ui-designer | Folge aus dem Review: Datenschutz-Hinweise, Alle Daten löschen, Notausgang, CSP |
 | [H](H-nachpruefung.md) | infra-connectivity | Restpunkte aus der Nachprüfung (kein kritischer/hoher Befund offen) |
+| [I](I-stunden-gliedern.md) | ui-designer | Rückmeldung aus dem ersten echten Einsatz: Stunden gliedern, Stunden im Bautagesbericht |
 
 ## Für alle Aufträge gilt
 
