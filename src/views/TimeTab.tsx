@@ -46,12 +46,16 @@ export default function TimeTab({ project }: { project: Project }) {
   const [aufgeklappt, setAufgeklappt] = useState<Record<string, boolean>>({});
   const lock = useLock();
 
-  const ansicht: Ansicht | null = gespeichert
-    ? {
-        modus: MODI.find((m) => m.id === gespeichert.modus)?.id ?? ANSICHT_STANDARD.modus,
-        reihenfolge: gespeichert.reihenfolge === 'alt' ? 'alt' : 'neu',
-      }
-    : null;
+  // undefined = lädt noch. Alles andere (auch ein kaputter gespeicherter Wert wie null) fällt auf den Standard zurück,
+  // damit der Stunden-Reiter nie leer bleibt.
+  const g0: Partial<Ansicht> = gespeichert && typeof gespeichert === 'object' ? gespeichert : {};
+  const ansicht: Ansicht | null =
+    gespeichert === undefined
+      ? null
+      : {
+          modus: MODI.find((m) => m.id === g0.modus)?.id ?? ANSICHT_STANDARD.modus,
+          reihenfolge: g0.reihenfolge === 'alt' ? 'alt' : 'neu',
+        };
   const alle = entries ?? [];
   const filterAktiv = suche.trim() !== '' || nurRegie || abrechnung !== 'alle';
   const gezeigt = filterTimes(alle, { suche, nurRegie, abrechnung });
@@ -238,7 +242,7 @@ export default function TimeTab({ project }: { project: Project }) {
                 </span>
                 <span className="num">{fmtHours(g.minuten)}</span>
               </button>
-              <button type="button" className="zeit-aktion" aria-label={`${g.label}: ${alleAbgerechnet ? 'wieder öffnen' : 'als abgerechnet markieren'}`} onClick={() => markieren(g.items, !alleAbgerechnet, g.label)}>
+              <button type="button" className="zeit-aktion" aria-label={`${g.label}: ${alleAbgerechnet ? 'wieder öffnen' : 'als abgerechnet markieren'}`} onClick={() => markieren(g.items, !alleAbgerechnet, filterAktiv ? `${g.label}, nur die angezeigte Auswahl` : g.label)}>
                 {alleAbgerechnet ? 'wieder öffnen' : 'als abgerechnet markieren'}
               </button>
               {offen && (
@@ -251,7 +255,7 @@ export default function TimeTab({ project }: { project: Project }) {
         })}
 
       {ansicht && gezeigt.some((e) => !e.abgerechnet) && (
-        <button type="button" className="btn zeit-sammel" onClick={() => markieren(gezeigt, true, 'Alle angezeigten offenen Stunden')}>
+        <button type="button" className="btn zeit-sammel" onClick={() => markieren(gezeigt, true, filterAktiv ? 'Alle offenen Stunden der aktuellen Auswahl (auch in zugeklappten Abschnitten)' : 'Alle offenen Stunden dieser Baustelle (auch in zugeklappten Abschnitten)')}>
           Alle angezeigten offenen Stunden als abgerechnet markieren
         </button>
       )}
