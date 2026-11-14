@@ -78,6 +78,12 @@ export interface TableField extends BaseField {
   presetRows?: Record<string, CellValue>[];
   /** Bezeichnung für „Zeile hinzufügen“, z. B. "Position" oder "Datenpunkt". */
   rowLabel?: string;
+  /**
+   * Die Tabelle lässt sich auf Knopfdruck aus den Stundeneinträgen (Stunden-Reiter) der Baustelle
+   * für das Datum des Protokolls füllen. Einmalige Kopie – der Stunden-Reiter wird nie verändert.
+   * `spalten` ordnet die Angaben den Spalten-ids dieser Tabelle zu.
+   */
+  quelle?: { art: 'zeiten'; spalten: { name: string; taetigkeit: string; stunden: string } };
 }
 
 export type Field = TextField | NumberField | SelectField | CheckField | TableField;
