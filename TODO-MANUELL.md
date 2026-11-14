@@ -22,7 +22,7 @@ Hier steht, was nur ein Mensch entscheiden oder erledigen kann (`CLAUDE.md`, Reg
 10. **Konfliktmodell für ein späteres Backend:** Der Entwurf nimmt an: „zuerst am Server angekommen gewinnt, der Konflikt wird angezeigt“, dazu eine Rechte-Matrix je Tabelle. Beides sind Annahmen (`docs/BACKEND.md`, Entscheidungen 6 und 7).
 11. **Updates der App:** Eine neue Version wird im Hintergrund geladen und beim nächsten Start aktiv, ohne Rückfrage. Alternative wäre ein Hinweis „Neue Version – jetzt laden?“.
 
-12. **Stunden im Bautagesbericht:** Die neue Tabelle „Personal und Stunden“ steht nur im Protokoll; wer auch den Stunden-Reiter pflegt, trägt doppelt ein. `docs/VORSCHLAG-stunden-im-bautagesbericht.md` beschreibt drei Auswege. Empfohlen wird ein Knopf „Stunden vom Tag übernehmen“, der die Tabelle einmalig aus dem Stunden-Reiter füllt. Soll das gebaut werden?
+12. ~~Stunden im Bautagesbericht~~ – entschieden und umgesetzt: Der Knopf „Stunden vom Tag übernehmen“ kopiert die Einträge des Tages einmalig aus dem Stunden-Reiter in den Bericht. Der Stunden-Reiter wird dabei nicht verändert.
 13. **Abgerechnet-Kennzeichen und Geräteabgleich:** Der Abgleich entscheidet je Eintrag, nicht je Feld. Wird ein Eintrag auf einem Gerät als abgerechnet markiert und danach auf dem anderen Gerät (mit altem Stand) bearbeitet, geht die Markierung beim Zusammenführen verloren. Daher: erst abgleichen, dann abrechnen.
 
 ## Manuelle Schritte

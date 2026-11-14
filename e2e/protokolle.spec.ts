@@ -130,7 +130,11 @@ test.describe('Bautagesbericht: Stunden vom Tag übernehmen', () => {
     await page.screenshot({ path: test.info().outputPath('uebernommen.png') });
 
     // Zweites Übernehmen: Rückfrage (vom Basistest bestätigt), ersetzt, keine Dubletten.
+    // Vorher einen Wert verändern: Erst wenn er wieder 7,5 ist, ist das Ersetzen wirklich durch.
+    // (Ohne diese Marke liefe die nächste Eingabe in das noch laufende Übernehmen hinein.)
+    await main.getByLabel('Stunden (h), Person 1', { exact: true }).fill('9');
     await knopf.click();
+    await expect(main.getByLabel('Stunden (h), Person 1', { exact: true })).toHaveValue('7,5');
     await expect(main.getByLabel('Name, Person 3', { exact: true })).toHaveCount(0);
     await expect(main.locator('.proto-sums')).toContainText('11,5 h');
 
