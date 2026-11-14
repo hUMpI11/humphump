@@ -90,3 +90,75 @@ test.describe('Protokolle', () => {
     await expect(bericht.getByText('15,5').first()).toBeVisible();
   });
 });
+
+async function stundeAmTag(page: import('@playwright/test').Page, datum: string, name: string, stunden: string, taetigkeit: string, regie = false) {
+  await page.getByRole('button', { name: 'Stunden eintragen' }).click();
+  const sheet = page.locator('.sheet');
+  await sheet.getByLabel('Datum').fill(datum);
+  await sheet.getByLabel('Mitarbeiter').fill(name);
+  await sheet.getByLabel('… oder Stunden direkt').fill(stunden);
+  await sheet.getByLabel('Tätigkeit').fill(taetigkeit);
+  if (regie) await sheet.getByText('Regiearbeit').click();
+  await page.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await page.locator('.sheet').waitFor({ state: 'detached' });
+}
+
+test.describe('Bautagesbericht: Stunden vom Tag übernehmen', () => {
+  test('füllt die Tabelle aus dem Stunden-Reiter, ersetzt statt zu verdoppeln und lässt db.times unberührt', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Neubau – Stundenübernahme', gewerke: ['Heizung'] });
+    await tab(page, 'Stunden');
+    await stundeAmTag(page, '2026-03-10', 'Anna Muster', '7,5', 'Rohrleitungen');
+    await stundeAmTag(page, '2026-03-10', 'Bernd Beispiel', '4', 'Pumpe tauschen', true);
+    await stundeAmTag(page, '2026-03-11', 'Anna Muster', '8', 'Isolierung');
+    const zeitenVorher = JSON.stringify(await tabelle(page, 'times'));
+    expect(JSON.parse(zeitenVorher)).toHaveLength(3);
+
+    await neuesProtokoll(page, 'Bautagesbericht');
+    const main = hauptbereich(page);
+    await main.getByLabel('Datum', { exact: true }).first().fill('2026-03-10');
+    const knopf = main.getByRole('button', { name: 'Stunden vom Tag übernehmen' });
+    await expect(knopf).toBeVisible();
+    expect((await knopf.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(main.getByText(/Dort wird nichts verändert/)).toBeVisible();
+
+    await knopf.click();
+    await expect(main.getByLabel('Name, Person 1', { exact: true })).toHaveValue('Anna Muster');
+    await expect(main.getByLabel('Stunden (h), Person 1', { exact: true })).toHaveValue('7,5');
+    await expect(main.getByLabel('Tätigkeit, Person 2', { exact: true })).toHaveValue('Pumpe tauschen (Regie)');
+    await expect(main.getByLabel('Name, Person 3', { exact: true })).toHaveCount(0);
+    await expect(main.locator('.proto-sums')).toContainText('11,5 h');
+    await page.screenshot({ path: test.info().outputPath('uebernommen.png') });
+
+    // Zweites Übernehmen: Rückfrage (vom Basistest bestätigt), ersetzt, keine Dubletten.
+    await knopf.click();
+    await expect(main.getByLabel('Name, Person 3', { exact: true })).toHaveCount(0);
+    await expect(main.locator('.proto-sums')).toContainText('11,5 h');
+
+    // Rückfrage mit „Nein“: nichts ändert sich.
+    await main.getByLabel('Stunden (h), Person 1', { exact: true }).fill('1');
+    await page.evaluate(() => {
+      window.confirm = () => false;
+    });
+    await knopf.click();
+    await expect(main.getByLabel('Stunden (h), Person 1', { exact: true })).toHaveValue('1');
+
+    // Tag ohne Einträge: Meldung, Tabelle bleibt.
+    await main.getByLabel('Datum', { exact: true }).first().fill('2026-03-12');
+    await knopf.click();
+    await expect(main.getByRole('status')).toContainText('keine Stundeneinträge');
+    await expect(main.getByLabel('Stunden (h), Person 1', { exact: true })).toHaveValue('1');
+
+    // Gespeichert und Stunden-Reiter unverändert.
+    await expect.poll(async () => JSON.stringify((await tabelle(page, 'protocols'))[0]?.values ?? {})).toContain('Bernd Beispiel');
+    expect(JSON.stringify(await tabelle(page, 'times'))).toBe(zeitenVorher);
+  });
+
+  test('abgeschlossenes Protokoll: Knopf ist gesperrt', async ({ page }) => {
+    await baustelleAnlegen(page, { name: 'Neubau – gesperrt', gewerke: ['Heizung'] });
+    await neuesProtokoll(page, 'Bautagesbericht');
+    const main = hauptbereich(page);
+    await main.getByRole('button', { name: 'Protokoll abschließen' }).click();
+    await expect.poll(async () => (await tabelle(page, 'protocols'))[0]?.abgeschlossen).toBe(true);
+    await expect(main.getByRole('button', { name: 'Stunden vom Tag übernehmen' })).toBeDisabled();
+  });
+});

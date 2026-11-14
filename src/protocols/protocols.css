@@ -40,6 +40,10 @@
 .proto-sums { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
 .proto-sums > div { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
 .proto-add { width: 100%; }
+.proto-quelle { display: flex; flex-direction: column; gap: 6px; }
+.proto-quelle-btn { width: 100%; min-height: 48px; }
+.proto-quelle-msg { margin: 0; font-weight: 600; }
+.proto-quelle-msg:empty { display: none; }
 
 /* Tabelle: echte Tabelle ab ~700 px Containerbreite */
 .proto-grid-wrap { overflow-x: auto; }

@@ -15,7 +15,7 @@ describe('Vorlagen', () => {
     expect(dupes(TEMPLATES.map((t) => t.id))).toEqual([]);
     for (const t of TEMPLATES) {
       expect(t.id).toMatch(/^[a-z]+(-[a-z]+)*$/);
-      expect(t.version).toBe(t.id === 'bautagesbericht' ? 2 : 1);
+      expect(t.version).toBe(t.id === 'bautagesbericht' ? 3 : 1);
       expect(templateById(t.id)).toBe(t);
     }
   });
@@ -102,6 +102,23 @@ describe('Vorlagen', () => {
     const tb = tables(templateById('lueftung-luftmengen')!)[0];
     expect(tb.columns.find((c) => c.id === 'abw')?.formula).toBe('(ist - soll) / soll * 100');
   });
+
+  it('quelle verweist auf vorhandene Spalten (Name/Tätigkeit Text, Stunden Zahl ohne Formel)', () => {
+    let gefunden = 0;
+    for (const t of TEMPLATES) {
+      for (const tb of tables(t)) {
+        if (!tb.quelle) continue;
+        gefunden++;
+        const col = (id: string) => tb.columns.find((c) => c.id === id);
+        expect(col(tb.quelle.spalten.name)?.type, `${t.id}/${tb.id}`).toBe('text');
+        expect(col(tb.quelle.spalten.taetigkeit)?.type, `${t.id}/${tb.id}`).toBe('text');
+        const h = col(tb.quelle.spalten.stunden);
+        expect(h?.type, `${t.id}/${tb.id}`).toBe('number');
+        expect(h?.formula).toBeUndefined();
+      }
+    }
+    expect(gefunden).toBeGreaterThan(0);
+  });
 });
 
 describe('templatesFor', () => {
@@ -121,7 +138,7 @@ describe('templatesFor', () => {
     expect(r.every((t) => t.gewerke.includes('*'))).toBe(true);
   });
 
-  it('Bautagesbericht (Version 2) hat die Tabelle Personal und Stunden mit Summe', () => {
+  it('Bautagesbericht (Version 3) hat die Tabelle Personal und Stunden mit Summe', () => {
     const t = templateById('bautagesbericht')!;
     const tb = tables(t).find((x) => x.id === 'personalStunden')!;
     expect(tb.rowLabel).toBe('Person');
@@ -129,6 +146,7 @@ describe('templatesFor', () => {
     expect(tb.columns[2]).toMatchObject({ type: 'number', unit: 'h' });
     expect(tb.summary).toEqual([{ column: 'stunden', label: 'Stunden gesamt', unit: 'h' }]);
     expect(fields(t).some((f) => f.id === 'personal')).toBe(true); // alte Werte bleiben lesbar
-    expect(t.beschreibung).toMatch(/nicht in den Stunden-Reiter/);
+    expect(t.beschreibung).toMatch(/aus dem Stunden-Reiter übernehmen/);
+    expect(tb.quelle).toEqual({ art: 'zeiten', spalten: { name: 'name', taetigkeit: 'taetigkeit', stunden: 'stunden' } });
   });
 });

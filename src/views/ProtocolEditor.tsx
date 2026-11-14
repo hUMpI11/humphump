@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { db, touchProject } from '../db';
 import { go } from '../lib/router';
-import { isoDate, fmtNumber, parseDecimal, uid } from '../lib/util';
+import { zeilenAusZeiten } from '../protocols/zeiten';
+import { isoDate, fmtDate, fmtNumber, parseDecimal, uid } from '../lib/util';
 import { Empty, Field as FormField, Header } from '../components/ui';
 import { cleanRows, cleanValues, computeRow, initialValue, protocolStats, tableSummary } from '../protocols/calc';
 import { templateById } from '../protocols/templates';
@@ -158,7 +159,15 @@ export default function ProtocolEditor({ projectId, protocolId }: { projectId: s
               <section key={i} className="proto-section card block">
                 {sec.title && <h2>{sec.title}</h2>}
                 {sec.fields.map((f) => (
-                  <FieldView key={f.id} field={f} value={doc.values[f.id]} onChange={(v) => setValue(f.id, v)} hideTitle={sec.fields.length === 1 && sec.title === f.label} />
+                  <FieldView
+                    key={f.id}
+                    field={f}
+                    value={doc.values[f.id]}
+                    onChange={(v) => setValue(f.id, v)}
+                    hideTitle={sec.fields.length === 1 && sec.title === f.label}
+                    projectId={projectId}
+                    datum={doc.datum}
+                  />
                 ))}
               </section>
             ))}
@@ -236,7 +245,21 @@ function Choice({ value, onChange, label, small }: { value: CheckStatus; onChang
   );
 }
 
-function FieldView({ field, value, onChange, hideTitle }: { field: Field; value: FieldValue | undefined; onChange: (v: FieldValue) => void; hideTitle?: boolean }) {
+function FieldView({
+  field,
+  value,
+  onChange,
+  hideTitle,
+  projectId,
+  datum,
+}: {
+  field: Field;
+  value: FieldValue | undefined;
+  onChange: (v: FieldValue) => void;
+  hideTitle?: boolean;
+  projectId: string;
+  datum: string;
+}) {
   switch (field.type) {
     case 'text':
       return (
@@ -293,7 +316,7 @@ function FieldView({ field, value, onChange, hideTitle }: { field: Field; value:
       );
     }
     case 'table':
-      return <TableView field={field} rows={cleanRows(value)} onChange={onChange} hideTitle={hideTitle} />;
+      return <TableView field={field} rows={cleanRows(value)} onChange={onChange} hideTitle={hideTitle} projectId={projectId} datum={datum} />;
   }
 }
 
@@ -311,8 +334,44 @@ function useWidth<T extends HTMLElement>() {
   return [ref, w] as const;
 }
 
-function TableView({ field, rows, onChange, hideTitle }: { field: TableField; rows: Row[]; onChange: (v: FieldValue) => void; hideTitle?: boolean }) {
+function TableView({
+  field,
+  rows,
+  onChange,
+  hideTitle,
+  projectId,
+  datum,
+}: {
+  field: TableField;
+  rows: Row[];
+  onChange: (v: FieldValue) => void;
+  hideTitle?: boolean;
+  projectId: string;
+  datum: string;
+}) {
   const [ref, width] = useWidth<HTMLDivElement>();
+  const [meldung, setMeldung] = useState('');
+  const quelle = field.quelle;
+
+  // Nur lesen: db.times wird hier nie geschrieben.
+  async function uebernehmen() {
+    if (!quelle) return;
+    setMeldung('');
+    try {
+      const zeiten = await db.times.where('projectId').equals(projectId).filter((z) => z.datum === datum).toArray();
+      const neu = zeilenAusZeiten(zeiten, quelle.spalten).map((r) => computeRow(field.columns, r));
+      const tag = fmtDate(datum);
+      if (neu.length === 0) {
+        setMeldung(`Am ${tag} gibt es keine Stundeneinträge für diese Baustelle. Die Tabelle bleibt unverändert.`);
+        return;
+      }
+      if (rows.length > 0 && !window.confirm(`Die Tabelle hat bereits ${rows.length} ${rows.length === 1 ? 'Zeile' : 'Zeilen'}. Durch die ${neu.length} ${neu.length === 1 ? 'Eintrag' : 'Einträge'} vom ${tag} ersetzen?`)) return;
+      onChange(neu);
+      setMeldung(`${neu.length} ${neu.length === 1 ? 'Eintrag' : 'Einträge'} vom ${tag} übernommen.`);
+    } catch {
+      setMeldung('Die Stunden konnten nicht gelesen werden. Bitte noch einmal versuchen.');
+    }
+  }
   const wide = width >= 700;
   const cols = field.columns;
   const rowLabel = field.rowLabel ?? 'Zeile';
@@ -359,6 +418,17 @@ function TableView({ field, rows, onChange, hideTitle }: { field: TableField; ro
     <div className="proto-table" ref={ref}>
       {!hideTitle && <h3>{field.label}</h3>}
       {field.hint && <span className="field-hint">{field.hint}</span>}
+      {quelle && (
+        <div className="proto-quelle">
+          <button type="button" className="btn proto-quelle-btn" onClick={uebernehmen}>
+            Stunden vom Tag übernehmen
+          </button>
+          <span className="field-hint">Kopiert die Einträge vom {fmtDate(datum)} aus dem Stunden-Reiter. Dort wird nichts verändert.</span>
+          <p className="proto-quelle-msg" role="status">
+            {meldung}
+          </p>
+        </div>
+      )}
       {wide && rows.length > 0 ? (
         <div className="proto-grid-wrap">
           <table className="proto-grid">

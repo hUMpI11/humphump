@@ -150,10 +150,10 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: 'bautagesbericht',
-    version: 2,
+    version: 3,
     name: 'Bautagesbericht',
     gewerke: ['*'],
-    beschreibung: 'Kurzer Tagesbericht: Wetter, Personal und Stunden, Arbeiten, Behinderungen. Die Stunden stehen nur im Bericht und werden nicht in den Stunden-Reiter übernommen.',
+    beschreibung: 'Kurzer Tagesbericht: Wetter, Personal und Stunden, Arbeiten, Behinderungen. Die Stunden lassen sich aus dem Stunden-Reiter übernehmen; dort wird nichts verändert.',
     sections: [
       abschnitt('Tag', [
         datum('datum', 'Datum'),
@@ -169,6 +169,7 @@ export const TEMPLATES: Template[] = [
           rowLabel: 'Person',
           columns: [spalteText('name', 'Name'), spalteText('taetigkeit', 'Tätigkeit'), spalteZahl('stunden', 'Stunden', 'h')],
           summary: [{ column: 'stunden', label: 'Stunden gesamt', unit: 'h' }],
+          quelle: { art: 'zeiten', spalten: { name: 'name', taetigkeit: 'taetigkeit', stunden: 'stunden' } },
         },
       ]),
       abschnitt('Bericht', [

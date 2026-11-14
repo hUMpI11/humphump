@@ -1,6 +1,8 @@
 # Vorschlag: Stunden des Tages automatisch im Bautagesbericht
 
-Stand: Vorschlag, nichts davon ist umgesetzt. Entscheidung liegt beim Menschen (siehe `TODO-MANUELL.md`).
+Variante B ist umgesetzt (Auftrag J): Im Bautagesbericht übernimmt „Stunden vom Tag übernehmen“ die Stunden einmalig aus dem Stunden-Reiter.
+
+Stand: Vorschlag, umgesetzt ist nur Variante B. Entscheidung liegt beim Menschen (siehe `TODO-MANUELL.md`).
 
 ## Problem
 Der Bautagesbericht hat seit Auftrag I eine eigene Tabelle „Personal und Stunden“. Dieselben Stunden stehen aber schon im Stunden-Reiter. Wer beides pflegt, trägt doppelt ein, und die Zahlen können auseinanderlaufen. Gewünscht: Der Tagesbericht zeigt die Stunden des Tages aus dem Stunden-Reiter.
